@@ -1,0 +1,16 @@
+.env
+*.env
+__pycache__/
+*.pyc
+.venv/
+venv/
+node_modules/
+code/cache/
+.DS_Store
+*.zip
+*.tar
+*.gz
+*.tar.gz
+*.tgz
+*.7z
+*.rar
