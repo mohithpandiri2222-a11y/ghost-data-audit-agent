@@ -252,6 +252,15 @@ class EvidenceFact:
             object.__setattr__(self, "attributes", tuple(self.attributes))
 
     @property
+    def attributes_dict(self) -> Dict[str, str]:
+        """Returns attributes as a dictionary."""
+        return dict(self.attributes)
+
+    def get_attribute(self, key: str, default: Optional[str] = None) -> Optional[str]:
+        """Retrieves an attribute by key."""
+        return dict(self.attributes).get(key, default)
+
+    @property
     def has_record_timestamp(self) -> bool:
         """Returns True if the internal record has an explicit event timestamp."""
         return self.record_timestamp is not None

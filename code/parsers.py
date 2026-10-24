@@ -116,6 +116,7 @@ def find_matching_identifier(
         "email_hash",
         "correlation_key",
         "lookup_key",
+        "subject_key",
     )
 
     for fn in candidate_fields:
@@ -143,22 +144,30 @@ def derive_data_category(
 ) -> Optional[str]:
     """Heuristic data category derivation strictly aligned with deletion_rules.csv."""
     combined = f"{system_id}_{resource_id}_{collection_or_table}".lower()
+    if "tombstone" in combined:
+        return "ACCOUNT_TOMBSTONE"
     if "profile" in combined or "account" in combined:
         return "USER_PROFILE"
     if "search" in combined or "index" in combined:
         return "SEARCH_INDEX_ENTRY"
-    if "analytics" in combined:
+    if "analytics" in combined or "telemetry" in combined:
         return "ANALYTICS_PROFILE"
     if "support" in combined or "ticket" in combined:
         return "SUPPORT_MESSAGE"
     if "export" in combined:
         return "USER_EXPORT"
+    if "cache" in combined:
+        return "CACHE_ENTRY"
+    if "email" in combined and "delivery" in combined:
+        return "EMAIL_DELIVERY_LOG"
     if "data_flow" in combined or "connector" in combined or "subscription" in combined:
         return "ACTIVE_DATA_FLOW"
     if "backup" in combined or "restore" in combined or "archive" in combined:
         return "BACKUP_ARCHIVE"
     if "audit" in combined or "security" in combined:
         return "SECURITY_AUDIT_LOG"
+    if "legal" in combined or "hold" in combined:
+        return "LEGAL_HOLD_RECORD"
     return None
 
 
@@ -505,7 +514,7 @@ class JSONEvidenceParser(BaseEvidenceParser):
                         self._process_json_record(
                             rec=rec,
                             coll_or_svc=coll_name,
-                            fallback_system=data.get("source") or ev_file.origin,
+                            fallback_system=snapshot.get("data_store") or data.get("source") or ev_file.origin,
                             locator=f"{ev_file.file_path}:snapshots[{s_idx}].{coll_name}[{r_idx}]",
                             ev_file=ev_file,
                             subject=subject,
@@ -623,9 +632,52 @@ class JSONEvidenceParser(BaseEvidenceParser):
         )
         rec_ts = parse_iso_timestamp(str(raw_ts)) if raw_ts else None
 
+        category = derive_data_category(system_id, resource_id, coll_or_svc)
+
         # Determine state
         state = "PRESENT"
-        if "status_code" in flattened:
+
+        is_support = (
+            category == "SUPPORT_MESSAGE"
+            or "support" in coll_or_svc.lower()
+            or resource_id.startswith("support_")
+        )
+        is_tombstone = (
+            category == "ACCOUNT_TOMBSTONE"
+            or "tombstone" in coll_or_svc.lower()
+            or resource_id.startswith("tombstone_")
+        )
+
+        if is_support:
+            support_pii_keys = ("requester_email", "requester_name", "requester_phone")
+            all_pii_keys_present = all(k in flattened for k in support_pii_keys)
+            all_pii_explicitly_null = all_pii_keys_present and all(flattened.get(k) is None for k in support_pii_keys)
+            any_pii_present = any(flattened.get(k) is not None for k in support_pii_keys)
+
+            if all_pii_explicitly_null:
+                state = "REDACTED"
+            elif any_pii_present:
+                state = "PRESENT"
+            else:
+                # Fields missing from record or export — do NOT infer redaction
+                state = "PRESENT"
+
+        elif is_tombstone:
+            tombstone_pii_keys = ("name", "email", "phone", "email_hash")
+            all_tombstone_keys_present = all(k in flattened for k in tombstone_pii_keys)
+            all_tombstone_explicitly_null = all_tombstone_keys_present and all(flattened.get(k) is None for k in tombstone_pii_keys)
+            any_tombstone_pii_present = any(flattened.get(k) is not None for k in tombstone_pii_keys)
+
+            if all_tombstone_explicitly_null:
+                state = "REDACTED"
+            elif any_tombstone_pii_present:
+                # Prohibited direct PII remains exposed; do NOT treat as DELETED or compliant
+                state = "PRESENT"
+            else:
+                # Keys missing from record — do not infer compliance
+                state = "PRESENT"
+
+        elif "status_code" in flattened:
             state = "ABSENT" if flattened["status_code"] == 404 else "PRESENT"
         elif "account_status" in flattened:
             state = str(flattened["account_status"])
@@ -635,8 +687,6 @@ class JSONEvidenceParser(BaseEvidenceParser):
             state = "ACTIVE" if flattened["enabled"] in (True, 1, "1") else "DISABLED"
         elif "status" in flattened:
             state = str(flattened["status"])
-
-        category = derive_data_category(system_id, resource_id, coll_or_svc)
 
         # Semantic deduplication key preserves collection and resource
         fact_key = (
@@ -785,7 +835,11 @@ class LogEvidenceParser(BaseEvidenceParser):
                     status_val = str(kv.get("http_status") or kv.get("status") or "")
 
                     state = "PRESENT"
-                    if status_val == "404" or "missing" in event or "absent" in event or "deleted" in event or status_val == "ABSENT":
+                    if "enabled" in kv:
+                        state = "ACTIVE" if str(kv.get("enabled")).lower() in ("true", "1") else "DISABLED"
+                    elif "restore_allowed" in kv:
+                        state = "ACTIVE" if str(kv.get("restore_allowed")).lower() in ("true", "1") else "BLOCKED"
+                    elif status_val == "404" or "missing" in event or "absent" in event or "deleted" in event or status_val == "ABSENT":
                         state = "ABSENT"
                     elif status_val == "200" or "present" in event or "found" in event or status_val == "PRESENT" or status_val == "ACTIVE":
                         state = "PRESENT"
@@ -850,14 +904,45 @@ class LogEvidenceParser(BaseEvidenceParser):
                 errors=(f"Log file read error: {e}",),
             )
 
+        # Trace resolution:
+        # Correlate profile_lookup_started and profile_lookup_completed events by trace/request identity.
+        # When a valid terminal event establishes HTTP 404 / ABSENT, do not leave a stale initiation-only
+        # PRESENT fact that triggers a false remaining-record finding.
+        # Genuinely independent events and traces are preserved.
+        # Do not infer a terminal result when no terminal event exists.
+        terminal_absent_traces: Set[Tuple[str, str]] = set()
+        terminal_traces: Set[Tuple[str, str]] = set()
+
+        for f in facts:
+            tid = f.get_attribute("trace_id")
+            ev = f.get_attribute("event") or ""
+            if tid and (ev.endswith("_completed") or "completed" in ev):
+                terminal_traces.add((tid, f.resource_id))
+                if f.status_or_state == "ABSENT" or f.get_attribute("status_val") == "404":
+                    terminal_absent_traces.add((tid, f.resource_id))
+
+        resolved_facts: List[EvidenceFact] = []
+        for f in facts:
+            tid = f.get_attribute("trace_id")
+            ev = f.get_attribute("event") or ""
+            if tid and (ev.endswith("_started") or "started" in ev):
+                key = (tid, f.resource_id)
+                if key in terminal_absent_traces:
+                    # Terminal event established ABSENT (e.g. 404); drop stale initiation fact
+                    continue
+                if key in terminal_traces and f.status_or_state == "PRESENT":
+                    # Terminal event completed; drop duplicate initiation fact
+                    continue
+            resolved_facts.append(f)
+
         status = ParseStatus.SUCCESS if not errors else ParseStatus.PARTIAL_SUCCESS
         return EvidenceParseResult(
             file_id=ev_file.file_id,
             file_path=ev_file.file_path,
             status=status,
-            facts=tuple(facts),
+            facts=tuple(resolved_facts),
             records_read=records_read,
-            facts_extracted=len(facts),
+            facts_extracted=len(resolved_facts),
             errors=tuple(errors),
         )
 

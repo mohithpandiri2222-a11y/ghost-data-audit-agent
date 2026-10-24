@@ -113,7 +113,7 @@ class SubjectIdentity:
             return cleaned == self.user_id
 
         # Match emails
-        if fn in {"email", "user_email", "customer_email", "recipient_email", "historical_email"}:
+        if fn in {"email", "user_email", "customer_email", "recipient_email", "historical_email", "subject_key"}:
             return normalize_email(cleaned) in self.all_emails()
 
         # Match phone numbers
@@ -308,7 +308,7 @@ class IdentityResolver:
         fn = field_name.strip().lower()
         if fn in {"user_id", "subject_id", "customer_reference", "subject_reference", "account_id"}:
             return self.resolve_by_user_id(cleaned)
-        if fn in {"email", "user_email", "customer_email", "recipient_email"}:
+        if fn in {"email", "user_email", "customer_email", "recipient_email", "subject_key"}:
             return self.resolve_by_email(cleaned)
         if fn in {"email_hash", "correlation_key", "lookup_key", "hash"}:
             res = self.resolve_by_hash(cleaned)
