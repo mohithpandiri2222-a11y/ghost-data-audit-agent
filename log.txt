@@ -330,3 +330,58 @@ branch=main
 repo_root=c:\Users\hp\OneDrive\websites\hackerrank-orchestrate-october26-main
 worktree=main
 parent_agent=none
+
+## 2026-10-24T17:42:04Z Strict Ground-Truth Evidence Audit: case_25 and case_11
+
+User Prompt (verbatim, secrets redacted):
+Continue the existing HackerRank Orchestrate October 2026 project, "Ghost Data Still Exists." Do not restart completed work.
+
+First, read AGENTS.md completely and follow all repository and logging requirements. Review the checkpoint report and existing log.txt.
+
+TASK: Perform the next strict ground-truth evidence audit for case_25 and case_11. This is an audit-only task.
+
+For each case:
+
+1. Read the corresponding request from the participant-facing dataset and inspect every relevant raw evidence file.
+2. Verify every proposed finding against actual evidence. Record exact file paths, line numbers or JSON paths, resource IDs, and identity-linkage reasoning.
+3. Apply the specification's timestamp rule strictly: evidence must be admissible at or before audit_at. Check both the individual record timestamp and the file's captured_at where applicable.
+4. Verify the correct finding category and required remediation operation against deletion_rules.csv and the project specification. Do not blindly copy sample_output.csv.
+5. Check decoys, absent records, retained security audit records, and retention evidence. Do not infer a missing retention_until value without explicit support.
+6. For case_25, investigate all three proposed verification steps associated with evidence_92, including account_3136, audit_record_451, and analytics_1895. Verify the 404, retention requirements, and anonymization evidence directly.
+7. For case_11, investigate search_052, analytics_2034, support_864, and data_flow_9522 in evidence_03. Verify the discovery paths, timestamps, identity matches, and the proposed account_4248 and audit_record_9394 verification steps.
+8. Compare sample_output.csv only as a public reference for discrepancies; do not treat it as hidden ground truth or let it override raw evidence and the specification.
+9. Produce an audit report for both cases with:
+   A. Confirmed findings and evidence
+   B. Required remediation and specification rule
+   C. Temporal admissibility
+   D. Decoys and alternative explanations
+   E. Unresolved questions and corrections required
+10. Explicitly label each conclusion CONFIRMED, CONTRADICTED, or UNPROVEN. If evidence is insufficient, say so; do not fabricate a conclusion.
+11. Do not modify implementation code, output.csv, sample_output.csv, or submission packages.
+12. Do not access organizer-only files, hidden answers, or generator internals.
+13. Append this turn to root log.txt using the exact AGENTS.md format. Preserve all existing log entries. Use the actual harness and model identifiers, never guessed values.
+14. Follow the repository's established secret-scan, commit, and push requirements for changed files. Do not expose credentials.
+
+Return the complete audit findings with precise evidence references, the files inspected, unresolved issues, and the recommended next step. Stop and wait for review before proceeding to the reconciliation report.
+
+Agent Response Summary:
+Conducted rigorous ground-truth evidence audits for case_25 (COMPLETE) and case_11 (INCOMPLETE) against raw evidence files. For case_25, verified evidence_92 404 profile lookup for account_3136, anonymized profile analytics_1895 with null PII, and retained security audit record audit_record_451 with explicit retention_until 2031-12-31. For case_11, verified evidence_03 text handover records across search, analytics, support, and integration services, checked temporal admissibility at audit_at, evaluated decoys, and verified post-remediation verification steps.
+
+Actions:
+* run_command python inspect user_identities and audit_log for case_25
+* run_command python search system_activity and evidence for user_25
+* run_command python inspect evidence_92 lines for account_3136, analytics_1895, audit_record_451
+* run_command python inspect user_identities for case_11 (user_32)
+* run_command python inspect customer_account_handover_20261001.txt (evidence_03)
+* run_command python search system_activity for case_11 targets
+* run_command python search dataset for audit_record_9394
+* run_command Add-Content log.txt
+* run_command git diff --stat log.txt
+
+Context:
+tool=Antigravity
+model=Gemini 3.8 Flash (High)
+branch=main
+repo_root=c:\Users\hp\OneDrive\websites\hackerrank-orchestrate-october26-main
+worktree=main
+parent_agent=none
