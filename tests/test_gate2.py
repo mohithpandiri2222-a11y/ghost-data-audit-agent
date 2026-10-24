@@ -223,7 +223,7 @@ class TestGate2TemporalAdmissibilityValidator(unittest.TestCase):
         be replaced by file capture timestamps.
         """
         audit_at = parse_iso_timestamp("2026-09-15T12:00:00Z")
-        capture_time = parse_iso_timestamp("2026-09-15T10:00:00Z")
+        capture_time = self.manifest["evidence_54"].captured_at
 
         fact = EvidenceFact(
             file_id="evidence_54",
@@ -267,6 +267,37 @@ class TestGate2TemporalAdmissibilityValidator(unittest.TestCase):
         verdict = self.validator.validate_fact(fact, audit_at)
         self.assertFalse(verdict.is_admissible)
         self.assertEqual(verdict.rejection_reason, "UNMANIFESTED_FILE")
+
+    def test_temporal_validator_uses_authoritative_manifest_capture_time(self) -> None:
+        """
+        CRITICAL RULE (Prompt §5):
+        Validator must obtain authoritative capture timestamp from manifest entry
+        and reject a fact whose manifest file was captured after audit_at, even if
+        the fact object carries a forged pre-audit timestamp.
+        """
+        audit_at = parse_iso_timestamp("2026-09-15T12:00:00Z")
+        manifest_cap = self.manifest["evidence_06"].captured_at
+
+        # Fact carrying forged/tampered pre-audit file_captured_at
+        fact = EvidenceFact(
+            file_id="evidence_06",
+            file_path="evidence/logs/service_events_eu_west_20260918.log",
+            origin="service_readback_logs",
+            file_captured_at=parse_iso_timestamp("2026-09-01T00:00:00Z"),
+            record_timestamp=parse_iso_timestamp("2026-09-10T08:00:00Z"),
+            system_id="account_service",
+            resource_id="account_001",
+            data_category="USER_PROFILE",
+            raw_event=None,
+            status_or_state="PRESENT",
+            matched_identifier_field="user_id",
+            matched_identifier_value="user_01",
+        )
+        verdict = self.validator.validate_fact(fact, audit_at)
+        self.assertFalse(verdict.is_admissible)
+        self.assertFalse(verdict.is_file_admissible)
+        self.assertEqual(verdict.rejection_reason, "FILE_CAPTURED_AFTER_AUDIT_AT")
+        self.assertEqual(verdict.file_captured_at, manifest_cap)
 
 
 class TestGate2EvidenceParsers(unittest.TestCase):
@@ -524,6 +555,158 @@ class TestGate2EvidenceParsers(unittest.TestCase):
             self.assertTrue(fact.origin, "origin must not be empty")
             self.assertTrue(fact.source_locator, "source_locator must not be empty")
             self.assertIn(":", fact.source_locator, "source_locator must contain separator")
+
+    # -----------------------------------------------------------------------
+    # 12. Gate 2.1 Regression Tests: Hardened Parsers & Deduplication
+    # -----------------------------------------------------------------------
+
+    def test_log_parser_actual_dataset_json_lines_evidence_06_and_34(self) -> None:
+        """
+        Gate 2.1 Fix 1: LogEvidenceParser must parse timestamp-prefixed JSON objects.
+        Validates actual dataset evidence_06 and evidence_34 without silent drops.
+        """
+        u_collins = self.resolver.resolve_by_email("collins.grace@icloud.com")
+        self.assertIsNotNone(u_collins)
+
+        res06 = self.unified.parse_file("evidence_06", u_collins)
+        self.assertEqual(res06.status, ParseStatus.SUCCESS)
+        self.assertGreater(len(res06.facts), 0, "evidence_06 must extract facts for collins.grace")
+
+        # Find profile facts for account_6633
+        acct_facts = [f for f in res06.facts if f.resource_id == "account_6633"]
+        self.assertGreater(len(acct_facts), 0)
+        f_acct = acct_facts[0]
+        self.assertEqual(f_acct.system_id, "account_service")
+        self.assertEqual(f_acct.file_id, "evidence_06")
+        self.assertIn(":4", f_acct.source_locator)
+        self.assertTrue(f_acct.has_record_timestamp)
+
+        # Also test evidence_34
+        u_dubois = self.resolver.resolve_by_email("dubois.ines94@icloud.com")
+        self.assertIsNotNone(u_dubois)
+        res34 = self.unified.parse_file("evidence_34", u_dubois)
+        self.assertEqual(res34.status, ParseStatus.SUCCESS)
+        self.assertGreater(len(res34.facts), 0, "evidence_34 must extract facts for dubois.ines94")
+
+    def test_log_parser_malformed_json_lines_recorded_in_errors(self) -> None:
+        """
+        Gate 2.1 Fix 1: Malformed JSON lines in logs must be recorded in errors
+        without discarding the entire file.
+        """
+        with tempfile.NamedTemporaryFile("w", suffix=".log", delete=False, encoding="utf-8") as f:
+            f.write('2026-09-15T10:00:00Z {"service":"account_service","user_id":"user_99","resource_id":"account_99","event":"profile_lookup"}\n')
+            f.write('2026-09-15T10:02:00Z {malformed json line without closing\n')
+            f.write('2026-09-15T10:05:00Z level=INFO service=account_service user_id=user_99 resource_id=account_100 event=profile_lookup\n')
+            temp_path = Path(f.name)
+
+        try:
+            ev_dummy = EvidenceFile(
+                file_id="evidence_dummy_json_log",
+                file_path=temp_path.name,
+                origin="test_logs",
+                captured_at=datetime(2026, 9, 15, 12, 0, tzinfo=timezone.utc),
+                absolute_path=temp_path,
+            )
+            res = self.log_parser.parse(ev_dummy)
+            self.assertEqual(res.status, ParseStatus.PARTIAL_SUCCESS)
+            self.assertEqual(len(res.facts), 2)
+            self.assertGreater(len(res.errors), 0)
+            self.assertIn("Line 2", res.errors[0])
+            self.assertIn("malformed JSON", res.errors[0])
+        finally:
+            if temp_path.exists():
+                temp_path.unlink()
+
+    def test_json_parser_missing_internal_timestamp_remains_unproven_despite_container_export_ts(self) -> None:
+        """
+        Gate 2.1 Fix 2: JSONEvidenceParser must NEVER substitute container export/capture
+        timestamps for missing internal record timestamps.
+        """
+        import json as json_mod
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as f:
+            json_mod.dump({
+                "collection": "customer_snapshots",
+                "exported_at": "2026-09-15T12:00:00Z",
+                "captured_at": "2026-09-15T12:00:00Z",
+                "records": [
+                    {"user_id": "user_99", "resource_id": "account_99", "status": "ACTIVE"},
+                    {"user_id": "user_99", "resource_id": "account_100", "status": "ACTIVE", "updated_at": "2026-09-10T08:00:00Z"},
+                ]
+            }, f)
+            temp_path = Path(f.name)
+
+        try:
+            ev = EvidenceFile(
+                file_id="evidence_dummy_container_ts",
+                file_path=temp_path.name,
+                origin="test_json",
+                captured_at=datetime(2026, 9, 15, 12, 0, tzinfo=timezone.utc),
+                absolute_path=temp_path,
+            )
+            res = self.json_parser.parse(ev)
+            self.assertEqual(len(res.facts), 2)
+
+            f_no_ts = next(f for f in res.facts if f.resource_id == "account_99")
+            self.assertIsNone(f_no_ts.record_timestamp, "Missing internal timestamp must remain None")
+            self.assertFalse(f_no_ts.is_event_time_proven, "is_event_time_proven must be False")
+            self.assertIn("2026-09-15T12:00:00+00:00", dict(f_no_ts.attributes).get("container_timestamp", ""))
+
+            f_with_ts = next(f for f in res.facts if f.resource_id == "account_100")
+            self.assertIsNotNone(f_with_ts.record_timestamp)
+            self.assertTrue(f_with_ts.is_event_time_proven)
+        finally:
+            if temp_path.exists():
+                temp_path.unlink()
+
+    def test_sql_parser_canonical_system_mapping_and_replica_preservation(self) -> None:
+        """
+        Gate 2.1 Fix 3 & 4: SQLEvidenceParser must use canonical system IDs
+        (not manifest origin capture strings) and preserve distinct tables
+        (primary vs failover replica).
+        """
+        u05 = self.resolver.resolve_by_user_id("user_05")
+        res54_u05 = self.unified.parse_file("evidence_54", u05)
+        self.assertEqual(res54_u05.status, ParseStatus.SUCCESS)
+        fact_u05 = res54_u05.facts[0]
+        self.assertEqual(fact_u05.system_id, "account_service", "Must resolve to account_service, not manifest origin")
+
+        # Full parse of evidence_54 must preserve all 7 records across primary and replica
+        res54_all = self.sql_parser.parse(self.manifest["evidence_54"], None)
+        self.assertEqual(res54_all.records_read, 7)
+        self.assertEqual(res54_all.facts_extracted, 7, "Both primary and replica tables must be preserved")
+
+        # account_7204 exists in both primary and failover replica
+        acct_7204_facts = [f for f in res54_all.facts if f.resource_id == "account_7204"]
+        self.assertEqual(len(acct_7204_facts), 2, "account_7204 must exist in both tables")
+        tables = {dict(f.attributes).get("table") for f in acct_7204_facts}
+        self.assertEqual(tables, {"customer_profiles_primary", "customer_profiles_failover_replica"})
+
+    def test_deduplication_different_events_same_timestamp_survive(self) -> None:
+        """
+        Gate 2.1 Fix 4: Different events for the same resource at the same timestamp
+        must both survive without being collapsed.
+        """
+        with tempfile.NamedTemporaryFile("w", suffix=".log", delete=False, encoding="utf-8") as f:
+            f.write("2026-09-15T10:00:00Z level=INFO service=account_service user_id=user_88 resource_id=account_88 event=profile_lookup_started\n")
+            f.write("2026-09-15T10:00:00Z level=INFO service=account_service user_id=user_88 resource_id=account_88 event=profile_lookup_completed status=200\n")
+            temp_path = Path(f.name)
+
+        try:
+            ev_dummy = EvidenceFile(
+                file_id="evidence_dummy_diff_events",
+                file_path=temp_path.name,
+                origin="test_logs",
+                captured_at=datetime(2026, 9, 15, 12, 0, tzinfo=timezone.utc),
+                absolute_path=temp_path,
+            )
+            res = self.log_parser.parse(ev_dummy)
+            self.assertEqual(res.records_read, 2)
+            self.assertEqual(len(res.facts), 2, "Distinct events at same timestamp must both survive")
+            events = {dict(f.attributes).get("event") for f in res.facts}
+            self.assertEqual(events, {"profile_lookup_started", "profile_lookup_completed"})
+        finally:
+            if temp_path.exists():
+                temp_path.unlink()
 
 
 if __name__ == "__main__":

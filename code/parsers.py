@@ -163,6 +163,84 @@ def derive_data_category(
 
 
 # ---------------------------------------------------------------------------
+# Canonical Platform System Mapping for Database Tables & Resources
+# ---------------------------------------------------------------------------
+
+SQL_TABLE_TO_SYSTEM: Dict[str, str] = {
+    "customer_profiles": "account_service",
+    "customer_profiles_primary": "account_service",
+    "customer_profiles_failover_replica": "account_service",
+    "customer_profiles_regional": "account_service",
+    "customer_profiles_reporting": "account_service",
+    "customer_search_documents": "search_service",
+    "search_documents_primary": "search_service",
+    "customer_search_documents_regional": "search_service",
+    "customer_analytics_profiles": "analytics_platform",
+    "customer_analytics_profiles_regional": "analytics_platform",
+    "support_records": "support_platform",
+    "customer_exports": "export_service",
+    "connector_subscriptions": "integration_service",
+    "backup_restore_entries": "backup_service",
+    "security_audit_records": "security_service",
+    "legal_retention_records": "legal_service",
+}
+
+
+def resolve_canonical_system_id(
+    explicit_origin: Optional[str],
+    table_name: Optional[str],
+    resource_id: Optional[str],
+) -> str:
+    """
+    Schema-aware canonical system ID resolution.
+    Avoids falling back to manifest origin capture labels.
+    """
+    if explicit_origin:
+        cleaned = str(explicit_origin).strip().lower()
+        if cleaned in {
+            "account_service",
+            "search_service",
+            "analytics_platform",
+            "support_platform",
+            "export_service",
+            "integration_service",
+            "backup_service",
+            "security_service",
+            "identity_service",
+            "legal_service",
+        }:
+            return cleaned
+
+    if table_name and table_name.lower() in SQL_TABLE_TO_SYSTEM:
+        return SQL_TABLE_TO_SYSTEM[table_name.lower()]
+
+    if resource_id:
+        r_low = resource_id.lower()
+        if r_low.startswith("account_"):
+            return "account_service"
+        if r_low.startswith("search_"):
+            return "search_service"
+        if r_low.startswith("analytics_"):
+            return "analytics_platform"
+        if r_low.startswith("support_"):
+            return "support_platform"
+        if r_low.startswith("export_"):
+            return "export_service"
+        if r_low.startswith("data_flow_") or r_low.startswith("connector_"):
+            return "integration_service"
+        if r_low.startswith("backup_"):
+            return "backup_service"
+        if r_low.startswith("audit_"):
+            return "security_service"
+        if r_low.startswith("identity_"):
+            return "identity_service"
+        if r_low.startswith("legal_"):
+            return "legal_service"
+
+    return "unresolved_system"
+
+
+# ---------------------------------------------------------------------------
 # Base Parser Interface
 # ---------------------------------------------------------------------------
 
@@ -272,15 +350,12 @@ class SQLEvidenceParser(BaseEvidenceParser):
                 matched_field, matched_value = id_match
 
                 # Extract system_id, resource_id, and timestamps
-                system_id = (
-                    row_dict.get("origin_system")
-                    or rec_data.get("origin_system")
-                    or ev_file.origin
-                )
+                raw_origin = row_dict.get("origin_system") or rec_data.get("origin_system")
                 resource_id = (
                     merged.get("resource_id")
                     or f"{table}_{row_idx}"
                 )
+                system_id = resolve_canonical_system_id(raw_origin, table, resource_id)
 
                 # Extract record-level timestamp (updated_at / indexed_at)
                 raw_ts = (
@@ -311,9 +386,10 @@ class SQLEvidenceParser(BaseEvidenceParser):
                 # Source locator
                 locator = f"{ev_file.file_path}:{table}:{resource_id}"
 
-                # Semantic deduplication key
+                # Semantic deduplication key: preserves distinct tables (e.g. primary vs failover replica)
                 fact_key = (
                     ev_file.file_id,
+                    table,
                     system_id,
                     resource_id,
                     state,
@@ -430,12 +506,12 @@ class JSONEvidenceParser(BaseEvidenceParser):
                             rec=rec,
                             coll_or_svc=coll_name,
                             fallback_system=data.get("source") or ev_file.origin,
-                            fallback_ts=exported_at,
                             locator=f"{ev_file.file_path}:snapshots[{s_idx}].{coll_name}[{r_idx}]",
                             ev_file=ev_file,
                             subject=subject,
                             facts=facts,
                             seen=seen_fact_keys,
+                            container_ts=exported_at,
                         )
 
             # 2. Service resource export structure
@@ -454,18 +530,19 @@ class JSONEvidenceParser(BaseEvidenceParser):
                                     rec=rec,
                                     coll_or_svc=f"{svc_name}.{sub_name}",
                                     fallback_system=svc_name,
-                                    fallback_ts=None,
                                     locator=f"{ev_file.file_path}:{svc_name}.{sub_name}[{r_idx}]",
                                     ev_file=ev_file,
                                     subject=subject,
                                     facts=facts,
                                     seen=seen_fact_keys,
+                                    container_ts=None,
                                 )
 
             # 3. Collection records structure
             elif "records" in data and isinstance(data["records"], list):
                 records_read += len(data["records"])
                 coll_name = data.get("collection") or data.get("source") or "records"
+                container_exp_ts = parse_iso_timestamp(data.get("exported_at") or data.get("captured_at"))
                 for r_idx, rec in enumerate(data["records"]):
                     if not isinstance(rec, dict):
                         errors.append(f"Malformed record at index {r_idx}")
@@ -474,12 +551,12 @@ class JSONEvidenceParser(BaseEvidenceParser):
                         rec=rec,
                         coll_or_svc=coll_name,
                         fallback_system=data.get("source") or ev_file.origin,
-                        fallback_ts=parse_iso_timestamp(data.get("exported_at") or data.get("captured_at")),
                         locator=f"{ev_file.file_path}:{coll_name}[{r_idx}]",
                         ev_file=ev_file,
                         subject=subject,
                         facts=facts,
                         seen=seen_fact_keys,
+                        container_ts=container_exp_ts,
                     )
         elif isinstance(data, list):
             records_read += len(data)
@@ -491,12 +568,12 @@ class JSONEvidenceParser(BaseEvidenceParser):
                     rec=rec,
                     coll_or_svc="root",
                     fallback_system=ev_file.origin,
-                    fallback_ts=None,
                     locator=f"{ev_file.file_path}:root[{r_idx}]",
                     ev_file=ev_file,
                     subject=subject,
                     facts=facts,
                     seen=seen_fact_keys,
+                    container_ts=None,
                 )
 
         status = ParseStatus.SUCCESS if not errors else ParseStatus.PARTIAL_SUCCESS
@@ -515,12 +592,12 @@ class JSONEvidenceParser(BaseEvidenceParser):
         rec: Dict[str, Any],
         coll_or_svc: str,
         fallback_system: str,
-        fallback_ts: Optional[datetime],
         locator: str,
         ev_file: EvidenceFile,
         subject: Optional[SubjectIdentity],
         facts: List[EvidenceFact],
         seen: Set[Tuple[Any, ...]],
+        container_ts: Optional[datetime] = None,
     ) -> None:
         # Check flat fields and nested document/profile sub-dictionaries
         flattened = dict(rec)
@@ -537,14 +614,14 @@ class JSONEvidenceParser(BaseEvidenceParser):
         system_id = flattened.get("origin_system") or fallback_system
         resource_id = flattened.get("resource_id") or locator.split(":")[-1]
 
-        # Extract internal event timestamp
+        # Extract internal event timestamp strictly without container timestamp fallback
         raw_ts = (
             flattened.get("observed_at")
             or flattened.get("updated_at")
             or flattened.get("indexed_at")
             or flattened.get("timestamp")
         )
-        rec_ts = parse_iso_timestamp(str(raw_ts)) if raw_ts else fallback_ts
+        rec_ts = parse_iso_timestamp(str(raw_ts)) if raw_ts else None
 
         # Determine state
         state = "PRESENT"
@@ -561,8 +638,10 @@ class JSONEvidenceParser(BaseEvidenceParser):
 
         category = derive_data_category(system_id, resource_id, coll_or_svc)
 
+        # Semantic deduplication key preserves collection and resource
         fact_key = (
             ev_file.file_id,
+            coll_or_svc,
             system_id,
             resource_id,
             state,
@@ -579,6 +658,8 @@ class JSONEvidenceParser(BaseEvidenceParser):
             "matched_field": matched_field,
             "matched_value": matched_value,
         }
+        if container_ts:
+            attrs["container_timestamp"] = container_ts.isoformat()
         if "retention_until" in flattened and flattened["retention_until"]:
             attrs["retention_until"] = str(flattened["retention_until"])
 
@@ -630,6 +711,8 @@ class LogEvidenceParser(BaseEvidenceParser):
 
         facts: List[EvidenceFact] = []
         seen_fact_keys: Set[Tuple[Any, ...]] = set()
+        trace_context: Dict[str, Tuple[str, str]] = {}
+        trace_resources: Dict[str, str] = {}
         errors: List[str] = []
         records_read = 0
 
@@ -654,33 +737,57 @@ class LogEvidenceParser(BaseEvidenceParser):
 
                     rest = parts[1] if len(parts) > 1 else ""
                     kv: Dict[str, str] = {}
-                    for m in self.KV_REGEX.finditer(rest):
-                        k = m.group(1)
-                        v = m.group(2) if m.group(2) is not None else m.group(3)
-                        kv[k] = v
+                    rest_stripped = rest.strip()
+                    if rest_stripped.startswith("{"):
+                        try:
+                            json_obj = json.loads(rest_stripped)
+                            if isinstance(json_obj, dict):
+                                for k, v in json_obj.items():
+                                    if v is not None:
+                                        kv[str(k)] = str(v)
+                            else:
+                                errors.append(f"Line {line_no}: JSON payload is not an object")
+                                continue
+                        except Exception as e:
+                            errors.append(f"Line {line_no}: malformed JSON payload: {e}")
+                            continue
+                    else:
+                        for m in self.KV_REGEX.finditer(rest):
+                            k = m.group(1)
+                            v = m.group(2) if m.group(2) is not None else m.group(3)
+                            kv[k] = v
 
+                    trace_id = kv.get("trace_id")
                     id_match = find_matching_identifier(kv, subject)
-                    if id_match is None:
+                    if id_match is not None:
+                        matched_field, matched_value = id_match
+                        if trace_id:
+                            trace_context[trace_id] = id_match
+                    elif trace_id and trace_id in trace_context:
+                        matched_field, matched_value = trace_context[trace_id]
+                    else:
                         continue
 
-                    matched_field, matched_value = id_match
-
-                    system_id = kv.get("service") or ev_file.origin
-                    resource_id = (
+                    raw_res = (
                         kv.get("resource_id")
                         or kv.get("account_id")
                         or kv.get("search_id")
-                        or kv.get("trace_id")
-                        or f"{system_id}_{line_no}"
                     )
+                    if raw_res and trace_id:
+                        trace_resources[trace_id] = raw_res
+                    elif not raw_res and trace_id and trace_id in trace_resources:
+                        raw_res = trace_resources[trace_id]
+
+                    system_id = kv.get("service") or ev_file.origin
+                    resource_id = raw_res or (f"{system_id}_{trace_id}" if trace_id else f"{system_id}_{line_no}")
 
                     event = kv.get("event", "")
-                    status_val = kv.get("status")
+                    status_val = str(kv.get("http_status") or kv.get("status") or "")
 
                     state = "PRESENT"
-                    if status_val == "404" or "missing" in event or "absent" in event:
+                    if status_val == "404" or "missing" in event or "absent" in event or "deleted" in event or status_val == "ABSENT":
                         state = "ABSENT"
-                    elif status_val == "200" or "present" in event or "found" in event:
+                    elif status_val == "200" or "present" in event or "found" in event or status_val == "PRESENT" or status_val == "ACTIVE":
                         state = "PRESENT"
                     elif "anonymized" in event:
                         state = "ANONYMIZED"
@@ -690,11 +797,12 @@ class LogEvidenceParser(BaseEvidenceParser):
                     category = derive_data_category(system_id, resource_id, event)
                     locator = f"{ev_file.file_path}:{line_no}"
 
-                    # Semantic deduplication: resource in same state and timestamp
+                    # Semantic deduplication: resource in same event, state, and timestamp
                     fact_key = (
                         ev_file.file_id,
                         system_id,
                         resource_id,
+                        event,
                         state,
                         rec_ts,
                         matched_field,
@@ -710,8 +818,10 @@ class LogEvidenceParser(BaseEvidenceParser):
                         "matched_field": matched_field,
                         "matched_value": matched_value,
                     }
-                    if "trace_id" in kv:
-                        attrs["trace_id"] = kv["trace_id"]
+                    if trace_id:
+                        attrs["trace_id"] = trace_id
+                    if status_val:
+                        attrs["status_val"] = status_val
 
                     facts.append(
                         EvidenceFact(
@@ -824,6 +934,7 @@ class TextEvidenceParser(BaseEvidenceParser):
                         ev_file.file_id,
                         service,
                         res_id,
+                        category,
                         state,
                         rec_ts,
                         matched_field,

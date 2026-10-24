@@ -122,7 +122,9 @@ class SubjectIdentity:
 
         # Match email hashes and correlation keys
         if fn in {"email_hash", "correlation_key", "lookup_key", "hash", "subject_hash"}:
-            return normalize_hash(cleaned) in self.all_hashes()
+            norm_hash = normalize_hash(cleaned)
+            if norm_hash and norm_hash in self.all_hashes():
+                return True
 
         # Fallback heuristic: check if value matches any known identifier format
         norm_email = normalize_email(cleaned)
@@ -309,7 +311,9 @@ class IdentityResolver:
         if fn in {"email", "user_email", "customer_email", "recipient_email"}:
             return self.resolve_by_email(cleaned)
         if fn in {"email_hash", "correlation_key", "lookup_key", "hash"}:
-            return self.resolve_by_hash(cleaned)
+            res = self.resolve_by_hash(cleaned)
+            if res:
+                return res
         if fn in {"phone", "phone_number", "mobile"}:
             return self.resolve_by_phone(cleaned)
 

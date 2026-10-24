@@ -108,7 +108,8 @@ class TemporalAdmissibilityValidator:
         cutoff = self._normalize_audit_at(audit_at)
 
         # 1. Manifest Membership
-        if fact.file_id not in self.manifest:
+        ev_file = self.manifest.get(fact.file_id)
+        if ev_file is None:
             return TemporalValidationResult(
                 is_admissible=False,
                 is_file_admissible=False,
@@ -121,15 +122,16 @@ class TemporalAdmissibilityValidator:
                 file_id=fact.file_id,
             )
 
-        # 2. File-Level Admissibility Gate (File captured_at <= audit_at)
-        is_file_ok = fact.file_captured_at <= cutoff
+        # 2. File-Level Admissibility Gate (authoritative manifest capture time <= audit_at)
+        authoritative_captured_at = ev_file.captured_at
+        is_file_ok = authoritative_captured_at <= cutoff
         if not is_file_ok:
             return TemporalValidationResult(
                 is_admissible=False,
                 is_file_admissible=False,
                 is_record_event_proven=fact.is_event_time_proven,
                 is_record_event_admissible=fact.is_record_event_admissible(cutoff),
-                file_captured_at=fact.file_captured_at,
+                file_captured_at=authoritative_captured_at,
                 record_timestamp=fact.record_timestamp,
                 audit_at=cutoff,
                 rejection_reason="FILE_CAPTURED_AFTER_AUDIT_AT",
@@ -147,7 +149,7 @@ class TemporalAdmissibilityValidator:
                 is_file_admissible=True,
                 is_record_event_proven=True,
                 is_record_event_admissible=False,
-                file_captured_at=fact.file_captured_at,
+                file_captured_at=authoritative_captured_at,
                 record_timestamp=fact.record_timestamp,
                 audit_at=cutoff,
                 rejection_reason="RECORD_TIMESTAMP_AFTER_AUDIT_AT",
@@ -162,7 +164,7 @@ class TemporalAdmissibilityValidator:
             is_file_admissible=True,
             is_record_event_proven=is_proven,
             is_record_event_admissible=is_rec_ok,
-            file_captured_at=fact.file_captured_at,
+            file_captured_at=authoritative_captured_at,
             record_timestamp=fact.record_timestamp,
             audit_at=cutoff,
             rejection_reason=None,
