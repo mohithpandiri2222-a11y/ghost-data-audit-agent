@@ -242,6 +242,14 @@ class EvidenceFact:
             raise ValueError("EvidenceFact must specify a non-empty resource_id")
         if self.file_captured_at is None:
             raise ValueError("EvidenceFact must specify file_captured_at")
+        if isinstance(self.attributes, dict):
+            object.__setattr__(
+                self,
+                "attributes",
+                tuple(sorted((str(k), str(v)) for k, v in self.attributes.items())),
+            )
+        elif not isinstance(self.attributes, tuple):
+            object.__setattr__(self, "attributes", tuple(self.attributes))
 
     @property
     def has_record_timestamp(self) -> bool:

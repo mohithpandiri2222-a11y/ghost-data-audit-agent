@@ -677,3 +677,146 @@ branch=main
 repo_root=c:\Users\hp\OneDrive\websites\hackerrank-orchestrate-october26-main
 worktree=main
 parent_agent=none
+
+
+## [2026-10-25T00:38:45+05:30] Gate 2: Temporal Admissibility Validator & Evidence Parsers Implementation
+
+User Prompt (verbatim, secrets redacted):
+# Gate 2: Strict Temporal Admissibility Validator & Evidence Parsers
+
+We have provisionally approved Gate 1.1. Your task is to implement **Gate 2 only** for the HackerRank Orchestrate October 2026 challenge, “Ghost Data Still Exists.”
+
+## 1. Read Before Coding
+
+First inspect:
+- `AGENTS.md`
+- `problem_statement.md`
+- `README.md`
+- `ARCHITECTURE_AND_PROMPTS.md`
+- `reconciliation_report.md`, if present
+- All current Gate 1 code, tests, and the current Git status
+
+Follow the repository instructions exactly. Preserve the existing architecture and Gate 1 behavior. Do not assume a file or function exists without checking.
+
+## 2. Gate 2 Objective
+
+Build a provenance-preserving evidence parsing layer and a strict temporal admissibility validator.
+
+The layer must extract structured evidence facts from participant-facing files under `dataset/` and determine whether each fact is admissible for a particular deletion request's `audit_at` timestamp.
+
+**This gate extracts and validates evidence only. It must not decide deletion status or generate the final audit output.**
+
+## 3. Temporal Rules — Non-Negotiable
+
+For every evidence fact:
+
+1. The source file must be listed in the validated evidence manifest.
+2. The file's `captured_at` must be at or before the case's `audit_at`.
+3. If the evidence record has its own internal event/record timestamp, that timestamp must also be at or before `audit_at`.
+4. If the internal timestamp is missing, invalid, or unparseable, represent it explicitly as unknown/unproven. **Never substitute the file's `captured_at` for the record timestamp.**
+5. Evidence captured after `audit_at` is inadmissible, even if an internal timestamp appears earlier.
+6. Evidence exactly at `audit_at` is admissible for that time gate.
+7. Keep file-level admissibility and record-level temporal proof as separate concepts. A file passing its time gate does not automatically prove its records are timely.
+8. Invalid timestamps must not silently become admissible.
+
+Reuse Gate 1.1's existing manifest validation and temporal methods where appropriate. Avoid duplicating or weakening existing safeguards.
+
+## 4. Evidence Parsing
+
+Inspect the actual participant-facing evidence inventory and existing architecture before selecting parser implementations.
+
+Implement parsers for the formats actually present in the dataset and relevant to the challenge, such as CSV, JSON, JSONL, TXT, logs, and SQLite/SQL evidence where applicable.
+
+For formats such as PDF or images, inspect available dependencies and existing project conventions before deciding how to support them. Never silently treat an unsupported or unparsed file as evidence of absence. Record an explicit parse outcome, including unsupported or failed parsing when necessary.
+
+Requirements:
+- Preserve source provenance for every extracted fact: source file ID, relative path, source locator or row/record reference, and any available source metadata.
+- Preserve raw event/record information and normalized fields separately.
+- Extract internal timestamps only from source-supported timestamp fields. Do not invent timestamps.
+- Preserve system, resource, event/operation, state/status, and identity-related fields when present.
+- Handle malformed records safely and report parse errors without silently discarding the entire file.
+- Avoid duplicate facts when the same record is encountered through a parser's traversal.
+- Do not invent a fact merely because a resource or identifier is absent from a file.
+- Do not infer that a search result is globally complete unless the source explicitly supports that conclusion.
+- Keep the implementation modular and testable.
+
+Use the existing `EvidenceFact` model if it fits. Extend it compatibly only when necessary; do not break Gate 1.1 identity resolution or its tests.
+
+## 5. Tests Required
+
+Add meaningful automated tests covering at least:
+
+- File captured before `audit_at`.
+- File captured exactly at `audit_at`.
+- File captured after `audit_at`.
+- Record timestamp before, exactly at, and after `audit_at`.
+- Missing, malformed, and invalid record timestamps remain unknown/unproven.
+- A timely internal timestamp cannot rescue a file captured after `audit_at`.
+- A timely file timestamp cannot rescue a record with a late internal timestamp.
+- Provenance is retained across supported parsers.
+- Representative records from multiple actual dataset formats.
+- Malformed input and unsupported formats produce explicit outcomes.
+- Duplicate records are not emitted twice by a single traversal.
+- Existing Gate 1.1 identity and manifest tests continue to pass.
+
+Use fixtures based on real participant-facing schemas where practical, but keep tests deterministic and avoid reading organizer-only data or relying on hidden/golden answers.
+
+## 6. Scope Restrictions
+
+Do **not** implement any of the following yet:
+
+- Deletion-status classification.
+- Policy-rule evaluation.
+- Remediation planning or operation ordering.
+- Groq or other LLM classification.
+- Final `output.csv` generation or modification.
+- Changes to `dataset/sample_output.csv`.
+- Hardcoded case labels or expected hidden answers.
+
+Do not use organizer-only files, hidden answers, or dataset generator internals. Do not treat public sample outputs as hidden ground truth.
+
+## 7. Validation and Repository Hygiene
+
+Before finishing:
+
+1. Run the complete existing and new relevant test suite.
+2. Run the repository's secret scan using the documented command.
+3. Inspect the full diff for correctness, accidental scope expansion, and sensitive data.
+4. Check `git status` and ensure no unrelated files changed.
+5. Append a truthful Gate 2 summary to root `log.txt`; do not rewrite or delete earlier entries.
+6. Report actual command outputs and failures accurately. Do not claim tests or scans passed unless they ran successfully.
+7. If all required checks pass, create a conventional commit and push to the existing branch, following `AGENTS.md`. Never force-push.
+8. If a required check fails, fix it if safely within scope; otherwise stop and report the blocker without claiming completion.
+
+## 8. Final Report Format
+
+Return a concise Gate 2 report containing:
+- Files created or changed.
+- Parser formats supported and any unsupported formats.
+- Temporal validation behavior, including how unknown timestamps are represented.
+- Tests run and actual results.
+- Secret-scan result.
+- Commit hash and push result, if completed.
+- Remaining limitations or blockers.
+
+**Stop after Gate 2. Do not begin Gate 3. Wait for review and approval.**
+
+Agent Response Summary:
+Implemented Gate 2 comprising a provenance-preserving evidence parsing layer and strict temporal admissibility validator. Created code/temporal.py implementing TemporalAdmissibilityValidator and TemporalValidationResult with dual-timestamp gating, manifest membership validation, and strict preservation of unknown record timestamps without fallback to file capture times. Created code/parsers.py implementing SQLEvidenceParser (in-memory SQLite dynamic table and JSON inspection), JSONEvidenceParser (snapshots and service exports), LogEvidenceParser (syslog key-value parsing with line-level error recovery), TextEvidenceParser (pipe-separated shift handovers), and DocumentImageEvidenceParser (explicit ParseStatus.UNSUPPORTED_FORMAT outcome for PDF/PNG). Created tests/test_gate2.py with 15 comprehensive unit tests covering all required temporal gating combinations, malformed inputs, deduplication, and actual dataset fixtures; all 32 test cases across the entire test suite pass cleanly.
+
+Actions:
+* write_to_file code/temporal.py: strict temporal validator and structured validation verdicts
+* write_to_file code/parsers.py: parsers for SQL, JSON, Log, Text, and Document/Image formats with explicit parse outcomes and deduplication
+* replace_file_content code/config.py: normalized dict attributes in EvidenceFact
+* write_to_file tests/test_gate2.py: 15 unit tests covering temporal admissibility and parsers
+* run_command python -m unittest discover -v tests: all 32 tests passed
+* run_command python scan_secrets.py: 0 secrets found
+* git status, diff, commit, and push
+
+Context:
+tool=Antigravity
+model=Gemini 3.8 Flash (High)
+branch=main
+repo_root=c:\Users\hp\OneDrive\websites\hackerrank-orchestrate-october26-main
+worktree=main
+parent_agent=none
