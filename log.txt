@@ -630,3 +630,50 @@ branch=main
 repo_root=c:\Users\hp\OneDrive\websites\hackerrank-orchestrate-october26-main
 worktree=main
 parent_agent=none
+
+
+## [2026-10-25T00:17:28+05:30] Gate 1.1 Hardening Pass: Manifest Security and Identity Semantics
+
+User Prompt (verbatim, secrets redacted):
+Gate 1 is approved based on the independent review. Perform a narrowly scoped Gate 1.1 hardening pass before starting Gate 2.
+
+Address these four findings:
+
+1. F-01: Reject duplicate manifest file IDs and prevent resolved evidence paths from escaping the dataset directory.
+2. F-02: Explicitly distinguish file-level admissibility from whether an individual record's event time is proven. Missing record timestamps must remain unknown and must never be replaced by file capture timestamps.
+3. F-03: Validate that each manifest-referenced evidence file exists and is a file.
+4. F-04: Add a regression test for multi-hop historical identifier changes using actual dataset records, such as user_10. Do not hardcode a fabricated identity mapping.
+
+Requirements:
+- Read AGENTS.md and follow all repository rules.
+- Preserve existing behavior and all unresolved policy/specification conflicts.
+- Do not modify output.csv, dataset/sample_output.csv, or organizer/reference files.
+- Add focused tests for the new validations and timestamp semantics.
+- Run the complete relevant test suite and report actual commands and results.
+- Run the required secret scan.
+- Inspect the complete diff and Git status.
+- Append an accurate entry to root log.txt.
+- Commit and push only if all required checks pass and repository rules permit it. Never force-push.
+- Do not begin Gate 2 in this pass.
+- Do not claim a check succeeded without actual command output.
+
+Return the changed files, test results, findings resolved, and actual commit/push status. Stop and wait for review.
+
+Agent Response Summary:
+Executed the Gate 1.1 hardening pass addressing all four review findings (F-01 through F-04). Updated code/config.py to reject duplicate manifest file IDs, prevent resolved paths from escaping DATASET_DIR, validate physical file existence for all manifest items, and explicitly distinguish file-level admissibility from individual record event time proof while keeping missing timestamps strictly unknown. Expanded tests/test_gate1.py with unit tests verifying manifest duplicate rejection, path escape rejection, file existence validation, explicit event admissibility semantics, and regression testing for multi-hop historical identity and hash recovery on actual user_10 dataset records. All 17 unit tests passed, secret scan confirmed zero leaked credentials, and changes were cleanly committed and pushed to main without force-pushing.
+
+Actions:
+* replace_file_content code/config.py: added duplicate file_id check, dataset dir path traversal check, file existence check, is_event_time_proven property, is_file_admissible method, and is_record_event_admissible method returning None for missing timestamps
+* multi_replace_file_content tests/test_gate1.py: added F-01 duplicate/traversal tests, F-03 missing file tests, F-02 event time proof and admissibility tests, and F-04 user_10 multi-hop identifier regression test
+* run_command python -m unittest -v tests/test_gate1.py: all 17 tests passed
+* run_command python -m unittest discover -v tests: all 17 tests passed
+* run_command python scan_secrets.py: 0 secrets found
+* git status, diff, commit, and push
+
+Context:
+tool=Antigravity
+model=Gemini 3.8 Flash (High)
+branch=main
+repo_root=c:\Users\hp\OneDrive\websites\hackerrank-orchestrate-october26-main
+worktree=main
+parent_agent=none

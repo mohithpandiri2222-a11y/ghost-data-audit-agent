@@ -143,24 +143,53 @@ class EvidenceFile:
 def load_evidence_manifest(manifest_path: Optional[Path] = None) -> Dict[str, EvidenceFile]:
     """
     Loads evidence_files.csv and indexes all evidence files by file_id.
-    Validates file existence and parses UTC capture times.
+
+    Validations (Gate 1.1 F-01 & F-03):
+    1. Rejects duplicate manifest file_id entries.
+    2. Prevents resolved evidence paths from escaping DATASET_DIR.
+    3. Validates that each manifest-referenced file exists on disk and is a regular file.
+    4. Validates captured_at ISO-8601 timestamps.
     """
     path = manifest_path or EVIDENCE_FILES_PATH
     if not path.exists():
         raise FileNotFoundError(f"Evidence manifest not found at: {path}")
 
+    dataset_root = DATASET_DIR.resolve()
     manifest: Dict[str, EvidenceFile] = {}
     with open(path, "r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
             file_id = row["file_id"].strip()
+            if not file_id:
+                raise ValueError("Manifest row missing file_id")
+
+            # F-01: Reject duplicate manifest file IDs
+            if file_id in manifest:
+                raise ValueError(f"Duplicate file_id in evidence manifest: {file_id}")
+
             file_path = row["file_path"].strip()
             origin = row["origin"].strip()
             captured_at = parse_iso_timestamp(row["captured_at"])
             if captured_at is None:
                 raise ValueError(f"Invalid captured_at in manifest for {file_id}: {row['captured_at']}")
 
-            abs_path = DATASET_DIR / file_path
+            # F-01: Prevent resolved evidence paths from escaping dataset directory
+            abs_path = (DATASET_DIR / file_path).resolve()
+            try:
+                if not abs_path.is_relative_to(dataset_root):
+                    raise ValueError(f"Evidence file path escapes dataset directory: {file_path}")
+            except AttributeError:
+                try:
+                    abs_path.relative_to(dataset_root)
+                except ValueError:
+                    raise ValueError(f"Evidence file path escapes dataset directory: {file_path}")
+
+            # F-03: Validate that each manifest-referenced file exists and is a regular file
+            if not abs_path.exists():
+                raise FileNotFoundError(f"Evidence file missing on disk: {abs_path} (file_id: {file_id})")
+            if not abs_path.is_file():
+                raise FileNotFoundError(f"Evidence path is not a regular file: {abs_path} (file_id: {file_id})")
+
             manifest[file_id] = EvidenceFile(
                 file_id=file_id,
                 file_path=file_path,
@@ -181,11 +210,13 @@ class EvidenceFact:
     """
     Immutable representation of a concrete fact extracted from evidence.
 
-    CRITICAL RULE (ARCHITECTURE_AND_PROMPTS.md §4.3):
-    file_captured_at is the upper bound of container capture.
-    record_timestamp is the explicit timestamp of the internal event/record.
-    If record_timestamp is absent, it MUST remain None.
-    file_captured_at is NEVER substituted as a missing record's event timestamp.
+    CRITICAL RULES (ARCHITECTURE_AND_PROMPTS.md §4.3, Gate 1.1 F-02):
+    1. file_captured_at is the upper bound of container capture.
+    2. record_timestamp is the explicit timestamp of the internal event/record.
+       If record_timestamp is absent, it MUST remain None (unknown).
+       file_captured_at is NEVER substituted as a missing record's event timestamp.
+    3. File-level admissibility is explicitly distinguished from whether an
+       individual record's event time is proven.
     """
     file_id: str
     file_path: str
@@ -217,14 +248,44 @@ class EvidenceFact:
         """Returns True if the internal record has an explicit event timestamp."""
         return self.record_timestamp is not None
 
+    @property
+    def is_event_time_proven(self) -> bool:
+        """
+        F-02: Explicitly reports whether the individual record's event time is proven.
+        When record_timestamp is None, the event time is unproven/unknown.
+        Missing record timestamps must remain unknown and must never be replaced
+        by file capture timestamps.
+        """
+        return self.record_timestamp is not None
+
+    def is_file_admissible(self, audit_at: datetime) -> bool:
+        """
+        F-02: Evaluates file-level admissibility.
+        Returns True if the containing evidence file was captured on or before audit_at.
+        """
+        return self.file_captured_at <= audit_at
+
+    def is_record_event_admissible(self, audit_at: datetime) -> Optional[bool]:
+        """
+        F-02: Evaluates record-level event admissibility against audit_at cutoff.
+        - Returns True if record_timestamp is proven and <= audit_at.
+        - Returns False if record_timestamp is proven and > audit_at.
+        - Returns None if record_timestamp is unproven (None). Missing record timestamps
+          remain unknown and are never replaced by file capture timestamps.
+        """
+        if self.record_timestamp is None:
+            return None
+        return self.record_timestamp <= audit_at
+
     def is_temporally_admissible(self, audit_at: datetime) -> bool:
         """
-        Evaluates dual temporal rule:
-        1. File Gating: file_captured_at <= audit_at
-        2. Record Gating: if record_timestamp is present, record_timestamp <= audit_at.
-        If file was captured after audit_at, returns False.
+        Dual temporal rule evaluation for pre-audit evidence admissibility:
+        1. File Gating: file_captured_at <= audit_at (is_file_admissible).
+        2. Record Gating: if record_timestamp is proven, record_timestamp <= audit_at.
+           If record_timestamp is unproven (None), the event time remains unknown, but the
+           fact as observed in the snapshot/file captured at or before audit_at is admissible.
         """
-        if self.file_captured_at > audit_at:
+        if not self.is_file_admissible(audit_at):
             return False
         if self.record_timestamp is not None and self.record_timestamp > audit_at:
             return False
