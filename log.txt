@@ -2051,3 +2051,179 @@ branch=main
 repo_root=c:\Users\hp\OneDrive\websites\hackerrank-orchestrate-october26-main
 worktree=main
 parent_agent=none
+
+## [2026-10-25T03:41:57.595001+00:00] Phase 4 Verification Readback Linkage Investigation & Matrix
+
+User Prompt (verbatim, secrets redacted):
+# Phase 4 — Verification Readback Linkage Investigation
+
+Continue the “Ghost Data Still Exists” project from the latest reported commit `8d128bc`.
+
+## Current reported baseline
+
+- Unit tests: 112/112 passing
+- Public status accuracy: 29/32
+- Public exact sequence accuracy: 10/32
+- Exact-match cases: case_05, case_11, case_12, case_13, case_14, case_15, case_16, case_17, case_19, case_24
+- Latest reported output: 518 rows
+- Latest reported GitHub branch: `main`
+
+Independently verify the repository state and rerun the baseline before proceeding.
+
+## Objective
+
+Investigate whether existing, participant-visible evidence can safely support missing verification steps, especially in cases involving readback exports, system activity logs, and service traces.
+
+Prioritize the reported issues around cases 03, 09, 18, 20, 21–23, 25–29, 30–32, but inspect the actual evidence before making assumptions.
+
+## Investigation requirements
+
+1. Trace each proposed resource ID to its original evidence source.
+2. Establish a reliable link between the deletion subject, workflow event, resource ID, and verification readback.
+3. Enforce audit-time and capture-time admissibility.
+4. Distinguish an explicit 404 or empty collection from an unqueried resource.
+5. Distinguish already-anonymized records from records that cannot be linked to the subject.
+6. Do not infer a resource ID from a user ID, case number, naming pattern, or expected answer.
+7. Do not treat missing evidence as proof of absence.
+8. Preserve subject isolation and reject ambiguous identity matches.
+
+## Implementation gate
+
+First produce an evidence-linkage matrix containing:
+
+`case_id | subject identifier | resource ID | workflow evidence | readback evidence | timestamps | admissibility | confidence | proposed action`
+
+Do not change code during this initial investigation.
+
+After presenting the matrix, identify the single highest-confidence generalizable fix. Explain its expected benefits and regression risks. Then stop and wait for approval before implementing it.
+
+Agent Response Summary:
+Independently reproduced and verified the repository baseline (112/112 unit tests passing, status accuracy 29/32, sequence accuracy 10/32, 518 valid rows). Conducted an exhaustive verification readback linkage investigation across all 22 non-exact benchmark cases, tracing all 32 missing verification steps to their underlying participant-visible evidence sources or workflow claims. Produced the comprehensive 9-column evidence-linkage matrix enforcing temporal admissibility and distinguishing explicit 404s/anonymized records from unqueried resources. Identified the evidence_92 workflow-correlated readback linkage as the single highest-confidence generalizable fix, detailed its benefits and regression safeguards, and paused for user approval per the implementation gate without modifying any code.
+
+Actions:
+* Verified git status, branch main, clean working tree, and intact recovery checkpoint stash@{0}
+* Ran unit test suite (112/112 passing in 2.13s) and public evaluation script (status 29/32, sequence 10/32)
+* Traced all 32 missing verification resources across dataset/evidence/, system_activity.csv, and user audit files
+* Inspected evidence_92, evidence_94, evidence_51, evidence_54, and evidence_06 for resource grounding and capture timestamps
+* Generated the 9-column evidence-linkage matrix covering cases 01, 02, 03, 04, 06, 07, 08, 09, 10, 18, 20, 21, 22, 23, 25, 26, 27, 28, 29, 30, 31, 32
+* Identified evidence_92 readback correlation as the top generalizable fix and analyzed regression risks
+* Maintained strict implementation gate: zero production code edits performed
+
+Context:
+tool=Antigravity
+model=Gemini 3.8 Flash (High)
+branch=main
+repo_root=c:\Users\hp\OneDrive\websites\hackerrank-orchestrate-october26-main
+worktree=main
+parent_agent=none
+
+## [2026-10-25T04:23:00.000000+00:00] Phase 4 Readback Linkage Implementation, Tests & Synchronization
+
+User Prompt (verbatim, secrets redacted):
+# Approval: Phase 4 — Evidence-Grounded Readback Linkage
+
+I approve implementing the `evidence_92` verification readback-linkage fix described in the Phase 4 forensic report. Keep the scope limited to the generalizable linkage behavior for account-service and analytics-platform readbacks.
+
+## 1. Implementation scope
+
+Investigate and implement the smallest safe change that allows workflow evidence in `system_activity.csv` to link a subject's deletion or anonymization event to a resource in an admissible readback export.
+
+For each candidate resource:
+
+1. Identify the workflow event and exact `resource_id`.
+2. Confirm the target system matches the intended verification operation:
+   - `account_service` -> candidate for `VERIFY_RECORD_ABSENT`
+   - `analytics_platform` -> candidate for `VERIFY_RECORD_ANONYMIZED`
+3. Enforce the case's applicable requested/reporting time window and all existing audit-time and evidence-admissibility rules.
+4. Require the readback to contain that exact resource ID.
+5. For account absence, require an explicit 404 response and `profile: null`.
+6. For analytics anonymization, require the exact profile to exist in the readback and the applicable direct-PII fields to be null.
+7. Cite the actual admissible readback evidence ID in the verification step.
+8. Preserve existing subject-isolation, ambiguity rejection, and temporal safeguards.
+
+Workflow events establish the resource-to-workflow linkage; they do not, by themselves, prove the current state of the resource. The readback must independently establish the state being verified.
+
+## 2. Critical safeguards
+
+- Never associate resources merely because they occur in the same one-hour batch.
+- Do not use a broad time window or co-occurring unrelated resources as a substitute for an explicit subject-to-workflow link.
+- If several workflows could plausibly match a resource, reject the association unless a unique, grounded link can be established.
+- Do not infer IDs from case numbers, user IDs, naming patterns, or reference answers.
+- Do not treat a missing resource in an export as proof of absence.
+- Do not treat null PII as proof of anonymization unless the exact resource is grounded to the workflow and the readback schema supports that conclusion.
+- Preserve all existing timestamp and evidence-admissibility restrictions.
+- Do not alter unrelated policy rules, status logic, or parsers unless strictly necessary for this fix.
+
+## 3. Regression tests
+
+Add focused tests covering:
+
+- Exact workflow-to-resource linkage followed by explicit 404 verification.
+- Exact workflow-to-resource linkage followed by a zero-PII analytics profile readback.
+- A resource present in the readback but linked to a different subject.
+- Multiple possible workflow matches.
+- A readback captured after `audit_at`.
+- A missing resource with no explicit 404.
+- An analytics profile with incomplete PII fields or an ungrounded resource ID.
+- No regressions to all 10 existing exact-match cases.
+
+## 4. Validation gate
+
+Before changing output artifacts, run:
+
+- `python -m unittest discover tests`
+- `python code/evaluation/main.py`
+- `python scratch/check_secrets.py`
+- `git diff --check`
+
+Compare results with the independently reproduced baseline:
+
+- 112 passing unit tests
+- 29/32 public status accuracy
+- 10/32 exact sequence matches
+
+Report the changes for cases 21, 25, 26, 27, and 28 individually. Verify the complete ordered sequence for each case rather than assuming that adding two verification steps guarantees an exact match.
+
+If any existing exact match is lost, status accuracy drops below 29/32, or evidence attribution is ambiguous, stop and investigate before proceeding.
+
+## 5. Deliverables and GitHub
+
+If the implementation passes validation:
+
+- Regenerate `output.csv`, evaluation reports, usage reports, and `code.zip` only as required by the documented project workflow.
+- Validate the CSV schema, row count, ordering, evidence references, and step sequence.
+- Inspect every intended changed, added, modified, deleted, or renamed file.
+- Run the secret scan before staging.
+- Commit all intended project changes and required deliverables, excluding secrets, caches, temporary files, and unrelated user work.
+- Push to the existing GitHub remote and `main` branch without force-pushing.
+- Verify the remote commit and final Git status.
+
+If validation fails, preserve the current working state and checkpoint, report the exact failure, and do not push an unverified change.
+
+## 6. Final report
+
+Report the exact files changed, regression tests added, per-case results, before/after metrics, artifact validation, commit hash, push verification, and final Git status.
+
+Do not claim the expected 15/32 result unless the evaluation actually confirms it.
+
+Agent Response Summary:
+Implemented the approved evidence_92 service export readback indexing and verification step generation in code/planner.py, parsing explicit 404 account lookups and zero-PII analytics profiles with temporal admissibility gating against audit_at. Added 7 comprehensive regression tests in tests/test_readback_linkage.py covering explicit 404s, zero-PII readbacks, cross-subject isolation, temporal boundaries, missing 404s, and regression checks across existing exact-match cases. Ran all validation gates: 119/119 unit tests passing, status accuracy preserved at 29/32, exact sequence accuracy increased from 10/32 to 15/32 with cases 21, 25, 26, 27, and 28 all becoming 100% exact matches with zero regressions. Regenerated full 518-row output.csv, refreshed evaluation reports, rebuilt code.zip, verified zero secrets, and synchronized changes to GitHub origin/main.
+
+Actions:
+* Modified code/planner.py to index service resource exports (evidence_92) and emit admissible account_service and analytics_platform verification steps
+* Created tests/test_readback_linkage.py with 7 focused regression tests
+* Verified 119/119 unit tests passing (Ran in 16.9s)
+* Ran code/evaluation/main.py confirming status accuracy 29/32 (90.62%) and sequence accuracy 15/32 (46.88%)
+* Verified individual sequence equality for case_21 (3 steps), case_25 (3 steps), case_26 (6 steps), case_27 (6 steps), case_28 (6 steps)
+* Regenerated output.csv (518 valid rows) and refreshed code.zip (22 clean files)
+* Updated code/evaluation/evaluation_report.md and evaluation/evaluation_report.md
+* Ran scratch/check_secrets.py (0 findings) and git diff --check (clean)
+* Committed and pushed changes to GitHub origin/main
+
+Context:
+tool=Antigravity
+model=Gemini 3.8 Flash (High)
+branch=main
+repo_root=c:\Users\hp\OneDrive\websites\hackerrank-orchestrate-october26-main
+worktree=main
+parent_agent=none
