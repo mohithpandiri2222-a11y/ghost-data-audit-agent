@@ -2911,3 +2911,169 @@ branch=main
 repo_root=c:\Users\hp\OneDrive\websites\hackerrank-orchestrate-october26-main
 worktree=main
 parent_agent=none
+
+## [2026-10-25T09:11:32.374497+00:00] Final Release Polish, Clean Packaging, and Isolated Validation
+
+User Prompt (verbatim, secrets redacted):
+# FINAL RELEASE POLISH — SAFE CLEANUP ONLY
+
+## Project
+Ghost Data Still Exists — HackerRank Orchestrate October 2026
+
+Repository: `https://github.com/mohithpandiri2222-a11y/ghost-data-audit-agent`
+
+Current validated baseline:
+- Rank 2 implementation and documentation reportedly committed and pushed.
+- Latest known Rank 2 commits: `55c6099` and `f7c84b0`.
+- Public status accuracy: 29/32 (90.62%).
+- Public exact-sequence accuracy: 17/32 (53.12%).
+- Unit tests: 133 passing.
+- Full evaluation output: 518 cases.
+- Final reported `code.zip` SHA-256: `09DB6A8BA2CBBA5178064958EA0D659C076B9BD67EA439E55F4B394832214FE0`.
+- Final reported `output.csv` SHA-256: `7DAA7B094764FFFD25A372F86209B472AE86065FA00968160CDADCBECE7D536F`.
+- Final reported `log.txt` SHA-256: `775E18323FB0911D5CEBA7233E12BEB571A295DDC522CF2593501DA0FD10766C`.
+
+Treat these as the last known baseline, not assumptions. Verify the actual repository state before doing anything.
+
+## Primary objective
+
+Perform a final, conservative release-readiness and cleanup review. Remove only demonstrably unnecessary material, improve clarity and consistency, and ensure the final package is reproducible and professional.
+
+**Do not attempt to increase the benchmark score in this pass. Do not change prediction logic, evidence interpretation, identity matching, timestamps, remediation sequences, or evaluation behavior.**
+
+## Phase 1 — Protect the baseline
+
+1. Inspect the current Git branch, HEAD, remote status, working tree, tags, and recent commits.
+2. Confirm the Rank 2 checkpoint is recoverable.
+3. Record SHA-256 hashes for the current `code.zip`, `output.csv`, and `log.txt`.
+4. Preserve the existing deliverables and create a separate cleanup checkpoint or branch before edits.
+5. If the current repository state differs unexpectedly from the reported baseline, stop and explain the difference before proceeding.
+
+Never delete the only copy of a deliverable, checkpoint, test, or recovery artifact.
+
+## Phase 2 — Audit for unnecessary material
+
+Inspect the entire repository, including source code, tests, documentation, reports, scripts, configuration, and packaging rules.
+
+Identify:
+- Unused imports and genuinely unreachable code.
+- Duplicate helper functions or redundant logic.
+- Dead scripts or generated files that are not needed.
+- Duplicate or contradictory documentation.
+- Temporary debugging output, accidental personal notes, and misleading claims.
+- Packaging clutter that is not needed to run or evaluate the solution.
+- Missing or unclear setup and execution instructions.
+
+For every proposed removal, explain:
+1. What the item is.
+2. Why it is unnecessary.
+3. Whether anything imports, references, executes, or depends on it.
+4. How its removal will be verified.
+
+Do not delete files simply because they look unfamiliar or large.
+
+## Phase 3 — Preserve all competition-critical behavior
+
+Do not remove or weaken:
+- Evidence provenance and manifest validation.
+- Subject and resource identity safeguards.
+- `captured_at <= audit_at` temporal cutoff checks.
+- Retention requirements and evidence-grounded verification.
+- `DATASET_DIR` environment-variable support.
+- The documented CLI, including `python code/main.py --requests ... --output ...`.
+- The expected default execution path, if required by the competition.
+- Parser behavior, planner logic, regression tests, and negative tests.
+- Rank 1 and Rank 2 evidence-specific fixes.
+- Required output columns, row ordering, JSON formatting, or CSV schema.
+- Any files required by `README.md`, `AGENTS.md`, the competition contract, or the runtime.
+
+Do not hardcode expected sample outputs, embed benchmark answers, fabricate resource IDs, add unsupported dependencies, or weaken tests to make cleanup appear successful.
+
+## Phase 4 — Polish documentation and repository hygiene
+
+Make documentation concise, consistent, and accurate.
+
+Check:
+- README contains the project purpose, prerequisites, setup, execution command, inputs, outputs, and testing instructions.
+- Architecture documentation accurately describes the real implementation.
+- Reports distinguish measured results from estimates and claims.
+- All paths and commands match the current repository.
+- No stale Rank 1 statements are presented as current Rank 2 results.
+- No unsupported claims such as guaranteed ranking, guaranteed score, or absolute theoretical ceiling.
+- No API keys, passwords, tokens, personal secrets, or private local paths are included in the release package.
+- Git ignores caches, virtual environments, temporary files, and local secrets appropriately.
+
+Avoid unnecessary rewrites. Keep the existing project architecture intact.
+
+## Phase 5 — Validate every change
+
+After cleanup:
+
+1. Run the complete test suite.
+2. Run the public 32-case evaluation.
+3. Confirm status accuracy remains 29/32 and exact-sequence accuracy remains 17/32.
+4. Compare the exact-match case list with the Rank 2 baseline.
+5. Run the full 518-case evaluation and compare the generated CSV with the preserved baseline.
+6. Investigate every unexpected changed row or test failure.
+7. Verify command-line execution and `DATASET_DIR` support.
+8. Check that all required files are present and that no forbidden or unnecessary files entered the package.
+
+If cleanup causes any behavioral change, revert the relevant cleanup unless the change is a clearly demonstrated correction to a nonessential defect. Do not change scoring behavior in this pass.
+
+## Phase 6 — Rebuild and test the release package
+
+Only after validation passes:
+
+1. Rebuild `code.zip` from the intended release files.
+2. Inspect the archive contents and confirm it contains all required runtime code, tests, documentation, and configuration.
+3. Confirm it excludes datasets, secrets, `.pyc` files, caches, virtual environments, nested archives, and unrelated scratch directories.
+4. Extract the ZIP into a fresh temporary directory outside the repository.
+5. Run the complete test suite and documented CLI from that isolated directory.
+6. Generate a fresh output and compare it against the intended final `output.csv`.
+7. Verify CSV schema, row count, JSON validity, and deterministic output.
+8. Recalculate SHA-256 hashes for all final deliverables.
+
+Never claim isolated validation succeeded unless it was actually executed.
+
+## Phase 7 — Final report and Git decision
+
+Before committing, report:
+- Every file changed, removed, or retained and why.
+- Tests and benchmarks before and after cleanup.
+- Any changes to generated output.
+- Final archive contents and isolated execution results.
+- Final artifact sizes and SHA-256 hashes.
+- Any unresolved issues.
+
+If no meaningful cleanup is justified, leave the source unchanged and report that the release is already clean.
+
+If changes are safe and all checks pass, commit and push them with a clear message such as `chore(release): final safe cleanup and packaging polish`.
+
+Do not overwrite the original checkpoint. If any validation fails, stop, restore the last known-good state, and report the failure.
+
+## Final rule
+
+This is the last release-polish pass. Stability, reproducibility, and competition compliance matter more than cosmetic changes.
+
+Do not submit to HackerRank automatically. Do not make ranking predictions. Do not claim success without evidence. Finish with a concise, factual release-readiness report and clearly identify the exact files intended for submission.
+
+Agent Response Summary:
+Completed final release polish, documentation enhancement, and clean isolated package validation. Created pre-cleanup checkpoint tag checkpoint-release-pre-cleanup and backed up existing deliverables. Polished README.md with explicit CLI options, test execution commands, and evaluation instructions. Rebuilt clean 24-file code.zip (118,959 bytes) with zero datasets, caches, or secrets. Extracted code.zip into an isolated temporary workspace outside the repository and ran full unit test suite (133 tests passed), CLI execution on 518 cases (19.80s), and evaluation contract verification (100% compliant, 0 row differences with root output.csv). Maintained verified 17/32 (53.12%) exact sequence accuracy and 29/32 status accuracy without any prediction changes.
+
+Actions:
+* Verified baseline status, created recovery checkpoint tag checkpoint-release-pre-cleanup and backed up deliverables
+* Enhanced README.md with clear CLI flags, test suite execution instructions, and contract evaluation pipeline commands
+* Executed full unit test suite (133 tests passed in 5.78s)
+* Executed full evaluation pipeline code/evaluation/main.py (29/32 status, 17/32 sequence, 100% compliant)
+* Verified 0 changes in output.csv against preserved baseline (SHA-256 7DAA7B09...)
+* Rebuilt code.zip (24 files, 118,959 bytes, 0 leaked datasets/caches/secrets)
+* Executed isolated release package verification in AppData/Local/Temp (unit tests, CLI, diff check, and evaluation passed)
+* Appended turn log entry to log.txt per AGENTS.md §5.2
+
+Context:
+tool=Antigravity
+model=Gemini 3.8 Flash (High)
+branch=main
+repo_root=c:\Users\hp\OneDrive\websites\hackerrank-orchestrate-october26-main
+worktree=main
+parent_agent=none

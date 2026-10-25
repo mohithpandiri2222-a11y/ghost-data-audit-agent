@@ -31,10 +31,28 @@ Your solution must:
 - Generate one prediction row for every request in `dataset/deletion_requests.csv`
 - Write the final predictions to `output.csv` in the repository root
 
-Run the starter Python entry point with:
+Run the audit agent entry point with:
 
 ```bash
 python3 code/main.py
+```
+
+To specify custom request or output paths:
+
+```bash
+python3 code/main.py --requests dataset/deletion_requests.csv --output output.csv
+```
+
+To run the complete automated test suite (133 tests):
+
+```bash
+python3 -m unittest discover tests
+```
+
+To run the full evaluation and contract validation pipeline:
+
+```bash
+python3 code/evaluation/main.py --output output.csv
 ```
 
 The blank template at `dataset/output.csv` is provided as a reference. Your final generated file for submission must be the root-level `output.csv`.
