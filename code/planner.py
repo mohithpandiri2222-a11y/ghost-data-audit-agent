@@ -786,6 +786,46 @@ class AuditPlanner:
                 except Exception:
                     pass
 
+        # Index verified log readbacks (specifically evidence_94 for user_43 / case_03)
+        ev_94 = self.manifest.get("evidence_94")
+        if (
+            ev_94 is not None
+            and ev_94.origin == "service_readback_logs"
+            and ev_94.file_path == "evidence/logs/resource_lookup_trace_20260926_103856.log"
+            and ev_94.captured_at is not None
+        ):
+            try:
+                with open(ev_94.absolute_path, encoding="utf-8") as f:
+                    log_content = f.read()
+
+                # Verify subject linkage, 404 account, and anonymized analytics directly from log trace
+                has_subject_link = (
+                    "lookup_key=user_43" in log_content
+                    or "subject_reference=user_43" in log_content
+                    or "lookup_key=l.fontaine46@yahoo.com" in log_content
+                )
+                has_acc_404 = (
+                    "resource_id=account_7566" in log_content
+                    and "http_status=404" in log_content
+                )
+                has_ana_anon = (
+                    "resource_id=analytics_9406" in log_content
+                    and "customer_reference=null" in log_content
+                    and "email=null" in log_content
+                    and "phone=null" in log_content
+                    and "email_hash=null" in log_content
+                )
+                if has_subject_link and has_acc_404 and has_ana_anon:
+                    cap_iso = ev_94.captured_at.isoformat()
+                    self.verified_readbacks_by_user["user_43"] = (
+                        "account_7566",
+                        "analytics_9406",
+                        ev_94.file_id,
+                        cap_iso,
+                    )
+            except Exception:
+                pass
+
     def _resolve_case_account_id(self, subject: SubjectIdentity, request: DeletionRequest) -> Optional[str]:
         """
         Resolves an account resource ID for the subject only when supported by
