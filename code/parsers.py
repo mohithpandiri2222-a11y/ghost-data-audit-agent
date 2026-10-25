@@ -21,11 +21,13 @@ Reference: AGENTS.md §6.1, §6.6, ARCHITECTURE_AND_PROMPTS.md §2.
 
 from __future__ import annotations
 
+import base64
 import csv
 import json
 import re
 import shlex
 import sqlite3
+import zlib
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -117,6 +119,8 @@ def find_matching_identifier(
         "correlation_key",
         "lookup_key",
         "subject_key",
+        "subject_ref",
+        "query",
     )
 
     for fn in candidate_fields:
@@ -146,14 +150,16 @@ def derive_data_category(
     combined = f"{system_id}_{resource_id}_{collection_or_table}".lower()
     if "tombstone" in combined:
         return "ACCOUNT_TOMBSTONE"
-    if "profile" in combined or "account" in combined:
-        return "USER_PROFILE"
-    if "search" in combined or "index" in combined:
-        return "SEARCH_INDEX_ENTRY"
+    if "attachment" in combined:
+        return "SUPPORT_ATTACHMENT"
     if "analytics" in combined or "telemetry" in combined:
         return "ANALYTICS_PROFILE"
+    if "search" in combined or "index" in combined:
+        return "SEARCH_INDEX_ENTRY"
     if "support" in combined or "ticket" in combined:
         return "SUPPORT_MESSAGE"
+    if "profile" in combined or "account" in combined:
+        return "USER_PROFILE"
     if "export" in combined:
         return "USER_EXPORT"
     if "cache" in combined:
@@ -202,27 +208,8 @@ def resolve_canonical_system_id(
 ) -> str:
     """
     Schema-aware canonical system ID resolution.
-    Avoids falling back to manifest origin capture labels.
+    Prioritizes resource prefix, followed by table name, followed by origin matching.
     """
-    if explicit_origin:
-        cleaned = str(explicit_origin).strip().lower()
-        if cleaned in {
-            "account_service",
-            "search_service",
-            "analytics_platform",
-            "support_platform",
-            "export_service",
-            "integration_service",
-            "backup_service",
-            "security_service",
-            "identity_service",
-            "legal_service",
-        }:
-            return cleaned
-
-    if table_name and table_name.lower() in SQL_TABLE_TO_SYSTEM:
-        return SQL_TABLE_TO_SYSTEM[table_name.lower()]
-
     if resource_id:
         r_low = resource_id.lower()
         if r_low.startswith("account_"):
@@ -241,9 +228,48 @@ def resolve_canonical_system_id(
             return "backup_service"
         if r_low.startswith("audit_"):
             return "security_service"
-        if r_low.startswith("identity_"):
+        if r_low.startswith("tombstone_") or r_low.startswith("identity_"):
             return "identity_service"
         if r_low.startswith("legal_"):
+            return "legal_service"
+
+    if table_name and table_name.lower() in SQL_TABLE_TO_SYSTEM:
+        return SQL_TABLE_TO_SYSTEM[table_name.lower()]
+
+    if explicit_origin:
+        cleaned = str(explicit_origin).strip().lower()
+        if cleaned in {
+            "account_service",
+            "search_service",
+            "analytics_platform",
+            "support_platform",
+            "export_service",
+            "integration_service",
+            "backup_service",
+            "security_service",
+            "identity_service",
+            "legal_service",
+        }:
+            return cleaned
+        if "account" in cleaned:
+            return "account_service"
+        if "search" in cleaned:
+            return "search_service"
+        if "analytics" in cleaned or "telemetry" in cleaned:
+            return "analytics_platform"
+        if "support" in cleaned:
+            return "support_platform"
+        if "export" in cleaned:
+            return "export_service"
+        if "data_flow" in cleaned or "connector" in cleaned or "integration" in cleaned:
+            return "integration_service"
+        if "backup" in cleaned or "restore" in cleaned:
+            return "backup_service"
+        if "audit" in cleaned or "security" in cleaned:
+            return "security_service"
+        if "identity" in cleaned or "tombstone" in cleaned:
+            return "identity_service"
+        if "legal" in cleaned:
             return "legal_service"
 
     return "unresolved_system"
@@ -350,6 +376,8 @@ class SQLEvidenceParser(BaseEvidenceParser):
                 # Merged view of columns and embedded json
                 merged = dict(row_dict)
                 merged.update(rec_data)
+                if isinstance(rec_data.get("document"), dict):
+                    merged.update(rec_data["document"])
 
                 # Check identifier match
                 id_match = find_matching_identifier(merged, subject)
@@ -613,6 +641,18 @@ class JSONEvidenceParser(BaseEvidenceParser):
         for nested_key in ("document", "profile", "user", "metadata"):
             if nested_key in rec and isinstance(rec[nested_key], dict):
                 flattened.update(rec[nested_key])
+        if "hits" in rec and isinstance(rec["hits"], dict):
+            hits_obj = rec["hits"]
+            if "documents" in hits_obj and isinstance(hits_obj["documents"], list):
+                for doc in hits_obj["documents"]:
+                    if isinstance(doc, dict):
+                        if subject is not None:
+                            if find_matching_identifier(doc, subject):
+                                flattened.update({k: v for k, v in doc.items() if v is not None})
+                                break
+                        else:
+                            flattened.update({k: v for k, v in doc.items() if v is not None})
+                            break
 
         id_match = find_matching_identifier(flattened, subject)
         if id_match is None:
@@ -620,8 +660,8 @@ class JSONEvidenceParser(BaseEvidenceParser):
 
         matched_field, matched_value = id_match
 
-        system_id = flattened.get("origin_system") or fallback_system
         resource_id = flattened.get("resource_id") or locator.split(":")[-1]
+        system_id = resolve_canonical_system_id(flattened.get("origin_system") or fallback_system, coll_or_svc, resource_id)
 
         # Extract internal event timestamp strictly without container timestamp fallback
         raw_ts = (
@@ -814,6 +854,23 @@ class LogEvidenceParser(BaseEvidenceParser):
                         if trace_id:
                             trace_context[trace_id] = id_match
                     elif trace_id and trace_id in trace_context:
+                        # Safeguard: Do not inherit trace context if this line has an explicit conflicting identifier
+                        if any(
+                            fn in kv and str(kv[fn]).strip() and str(kv[fn]).lower() not in INVALID_IDENTIFIER_STRINGS
+                            for fn in (
+                                "user_id",
+                                "email",
+                                "user_email",
+                                "customer_email",
+                                "requester_email",
+                                "owner_email",
+                                "phone",
+                                "lookup_key",
+                                "subject_key",
+                                "subject_ref",
+                            )
+                        ):
+                            continue
                         matched_field, matched_value = trace_context[trace_id]
                     else:
                         continue
@@ -828,8 +885,14 @@ class LogEvidenceParser(BaseEvidenceParser):
                     elif not raw_res and trace_id and trace_id in trace_resources:
                         raw_res = trace_resources[trace_id]
 
-                    system_id = kv.get("service") or ev_file.origin
-                    resource_id = raw_res or (f"{system_id}_{trace_id}" if trace_id else f"{system_id}_{line_no}")
+                    # Never synthesize a data resource ID from a trace ID or line number.
+                    # Skip operational lines (initiation, retry, connection) that lack an actual resource ID.
+                    if not raw_res:
+                        continue
+
+                    raw_system = kv.get("service") or ev_file.origin
+                    resource_id = raw_res
+                    system_id = resolve_canonical_system_id(raw_system, None, resource_id)
 
                     event = kv.get("event", "")
                     status_val = str(kv.get("http_status") or kv.get("status") or "")
@@ -1012,14 +1075,22 @@ class TextEvidenceParser(BaseEvidenceParser):
                         state = "ANONYMIZED"
                     elif status_str == "REDACTED":
                         state = "REDACTED"
-                    elif status_str in ("IDENTIFIABLE", "ACTIVE", "PRESENT"):
+                    elif status_str in ("ACTIVE", "ENABLED"):
+                        state = "ACTIVE"
+                    elif status_str in ("DISABLED", "BLOCKED"):
+                        state = "DISABLED"
+                    elif status_str in ("IDENTIFIABLE", "PRESENT", "FOUND"):
                         state = "PRESENT"
+
+                    norm_category = category
+                    if category == "DATA_FLOW" or res_id.startswith("data_flow_") or res_id.startswith("connector_"):
+                        norm_category = "ACTIVE_DATA_FLOW"
 
                     fact_key = (
                         ev_file.file_id,
                         service,
                         res_id,
-                        category,
+                        norm_category,
                         state,
                         rec_ts,
                         matched_field,
@@ -1038,7 +1109,7 @@ class TextEvidenceParser(BaseEvidenceParser):
                             record_timestamp=rec_ts,
                             system_id=service,
                             resource_id=res_id,
-                            data_category=category,
+                            data_category=norm_category,
                             raw_event=line,
                             status_or_state=state,
                             matched_identifier_field=matched_field,
@@ -1085,6 +1156,135 @@ class DocumentImageEvidenceParser(BaseEvidenceParser):
     Record an explicit parse outcome, including UNSUPPORTED_FORMAT when necessary.
     """
 
+    def _extract_pdf_tokens(self, pdf_path: Path) -> Tuple[List[str], List[str]]:
+        """
+        Pure-Python standard-library stream decompressor for PDF documents.
+        Handles FlateDecode, ASCII85Decode, string literal escapes, octal escapes,
+        and hex strings, while skipping binary font programs.
+        Returns (tokens, errors).
+        """
+        try:
+            data = pdf_path.read_bytes()
+        except Exception as e:
+            return [], [f"Failed to read file on disk: {e}"]
+
+        tokens: List[str] = []
+        errors: List[str] = []
+
+        pattern = re.compile(rb"<<\s*([^>]*?)\s*>>\s*stream[\r\n]+(.*?)[\r\n]*endstream", re.DOTALL)
+        for m in pattern.finditer(data):
+            dict_part = m.group(1).decode("latin-1", errors="ignore")
+            raw_stream = m.group(2)
+
+            # Skip embedded fonts or non-content binary assets
+            if "/Length1" in dict_part or "/Type /Font" in dict_part or "CIDFont" in dict_part:
+                continue
+
+            decomp: Optional[bytes] = None
+            if "ASCII85Decode" in dict_part and "FlateDecode" in dict_part:
+                try:
+                    s = raw_stream.strip()
+                    if not s.startswith(b"<~"):
+                        s = b"<~" + s
+                    if not s.endswith(b"~>"):
+                        s = s + b"~>"
+                    dec = base64.a85decode(s, adobe=True)
+                    decomp = zlib.decompress(dec)
+                except Exception as e:
+                    errors.append(f"ASCII85+Flate decompression error: {e}")
+            elif "FlateDecode" in dict_part:
+                try:
+                    decomp = zlib.decompress(raw_stream.strip())
+                except Exception as e:
+                    errors.append(f"Flate decompression error: {e}")
+            elif "ASCII85Decode" in dict_part:
+                try:
+                    s = raw_stream.strip()
+                    if not s.startswith(b"<~"):
+                        s = b"<~" + s
+                    if not s.endswith(b"~>"):
+                        s = s + b"~>"
+                    decomp = base64.a85decode(s, adobe=True)
+                except Exception as e:
+                    errors.append(f"ASCII85 decompression error: {e}")
+            elif "/Filter" in dict_part:
+                errors.append(f"Unsupported stream filter in {dict_part[:60]}")
+            else:
+                decomp = raw_stream
+
+            if decomp:
+                i = 0
+                n = len(decomp)
+                while i < n:
+                    c = decomp[i:i + 1]
+                    # Parse literal string: (...)
+                    if c == b"(":
+                        i += 1
+                        buf = []
+                        depth = 1
+                        while i < n and depth > 0:
+                            ch = decomp[i:i + 1]
+                            if ch == b"\\":
+                                i += 1
+                                if i < n:
+                                    esc = decomp[i:i + 1]
+                                    if esc == b"n":
+                                        buf.append(b"\n")
+                                    elif esc == b"r":
+                                        buf.append(b"\r")
+                                    elif esc == b"t":
+                                        buf.append(b"\t")
+                                    elif esc == b"b":
+                                        buf.append(b"\b")
+                                    elif esc == b"f":
+                                        buf.append(b"\f")
+                                    elif esc in (b"(", b")", b"\\"):
+                                        buf.append(esc)
+                                    elif esc.isdigit():
+                                        oct_digits = esc
+                                        while i + 1 < n and decomp[i + 1:i + 2].isdigit() and len(oct_digits) < 3:
+                                            i += 1
+                                            oct_digits += decomp[i:i + 1]
+                                        try:
+                                            buf.append(bytes([int(oct_digits, 8)]))
+                                        except Exception:
+                                            buf.append(oct_digits)
+                                    else:
+                                        buf.append(esc)
+                            elif ch == b"(":
+                                depth += 1
+                                buf.append(ch)
+                            elif ch == b")":
+                                depth -= 1
+                                if depth > 0:
+                                    buf.append(ch)
+                            else:
+                                buf.append(ch)
+                            i += 1
+                        s_val = b"".join(buf).decode("latin-1", errors="ignore").strip()
+                        if s_val:
+                            tokens.append(s_val)
+                    # Parse hex string: <...>
+                    elif c == b"<" and i + 1 < n and decomp[i + 1:i + 2] != b"<":
+                        end_hex = decomp.find(b">", i + 1)
+                        if end_hex != -1:
+                            hex_str = decomp[i + 1:end_hex].strip()
+                            if len(hex_str) % 2 == 1:
+                                hex_str += b"0"
+                            try:
+                                s_val = bytes.fromhex(hex_str.decode("latin-1")).decode("latin-1", errors="ignore").strip()
+                                if s_val:
+                                    tokens.append(s_val)
+                            except Exception:
+                                pass
+                            i = end_hex + 1
+                        else:
+                            i += 1
+                    else:
+                        i += 1
+
+        return tokens, errors
+
     def parse(
         self,
         ev_file: EvidenceFile,
@@ -1102,16 +1302,82 @@ class DocumentImageEvidenceParser(BaseEvidenceParser):
 
         # Check for PDF
         if suffix == ".pdf":
-            # In standard python environment without pypdf/fitz, record explicit outcome
-            return EvidenceParseResult(
-                file_id=ev_file.file_id,
-                file_path=ev_file.file_path,
-                status=ParseStatus.UNSUPPORTED_FORMAT,
-                errors=(
-                    f"PDF document parsing requires external dependency (pypdf/pdfminer); "
-                    f"file {ev_file.file_path} remains unparsed and cannot serve as evidence of absence.",
-                ),
-            )
+            try:
+                tokens, parse_errors = self._extract_pdf_tokens(ev_file.absolute_path)
+                facts: List[EvidenceFact] = []
+                if tokens and subject is not None:
+                    full_text = " ".join(tokens)
+                    matched_id: Optional[Tuple[str, str]] = None
+                    for email in subject.all_emails():
+                        if email.lower() in full_text.lower():
+                            matched_id = ("email", email)
+                            break
+                    if not matched_id:
+                        for phone in subject.all_phones():
+                            if phone in full_text:
+                                matched_id = ("phone", phone)
+                                break
+                    if not matched_id and subject.name and subject.name.lower() in full_text.lower():
+                        matched_id = ("name", subject.name)
+                    if not matched_id and subject.user_id in full_text:
+                        matched_id = ("user_id", subject.user_id)
+
+                    if matched_id:
+                        matched_field, matched_value = matched_id
+                        res_matches = re.findall(r"\b(support_\w+|account_\w+|export_\w+|search_\w+|audit_\w+)\b", full_text)
+                        primary_res = res_matches[0] if res_matches else f"doc_{ev_file.file_id}"
+                        system_id = resolve_canonical_system_id(ev_file.origin, ev_file.file_path, primary_res)
+                        category = derive_data_category(system_id, primary_res, ev_file.file_path)
+
+                        facts.append(
+                            EvidenceFact(
+                                file_id=ev_file.file_id,
+                                file_path=ev_file.file_path,
+                                origin=ev_file.origin,
+                                file_captured_at=ev_file.captured_at,
+                                record_timestamp=None,
+                                system_id=system_id,
+                                resource_id=primary_res,
+                                data_category=category,
+                                raw_event=full_text[:500],
+                                status_or_state="PRESENT",
+                                matched_identifier_field=matched_field,
+                                matched_identifier_value=matched_value,
+                                attributes={"document_type": "pdf_attachment"},
+                                source_locator=f"{ev_file.file_path}:stream",
+                            )
+                        )
+
+                if facts:
+                    return EvidenceParseResult(
+                        file_id=ev_file.file_id,
+                        file_path=ev_file.file_path,
+                        status=ParseStatus.SUCCESS,
+                        facts=tuple(facts),
+                        records_read=len(tokens),
+                        facts_extracted=len(facts),
+                        errors=tuple(parse_errors),
+                    )
+                else:
+                    return EvidenceParseResult(
+                        file_id=ev_file.file_id,
+                        file_path=ev_file.file_path,
+                        status=ParseStatus.UNSUPPORTED_FORMAT,
+                        facts=(),
+                        records_read=len(tokens),
+                        facts_extracted=0,
+                        errors=(
+                            f"PDF document parsing requires external dependency (pypdf/pdfminer); "
+                            f"file {ev_file.file_path} remains unparsed and cannot serve as evidence of absence.",
+                        ),
+                    )
+            except Exception as e:
+                return EvidenceParseResult(
+                    file_id=ev_file.file_id,
+                    file_path=ev_file.file_path,
+                    status=ParseStatus.PARSE_ERROR,
+                    errors=(f"PDF extraction error: {e}",),
+                )
 
         # Check for PNG / Images
         if suffix in (".png", ".jpg", ".jpeg"):

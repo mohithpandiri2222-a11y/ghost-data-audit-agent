@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -27,6 +28,7 @@ from pathlib import Path
 from typing import Any, Dict, FrozenSet, List, Optional, Set, Tuple
 
 from code.config import (
+    DATASET_DIR,
     DELETION_REQUESTS_PATH,
     OPERATION_ORDER_RANK,
     STATUS_COMPLETE,
@@ -173,6 +175,7 @@ def _gather_admissible_facts(
     validator: TemporalAdmissibilityValidator,
     audit_at: datetime,
     scan_errors: Optional[List[str]] = None,
+    grounded_account_id: Optional[str] = None,
 ) -> List[EvidenceFact]:
     """
     For the given subject, iterates the entire evidence manifest, parses
@@ -220,7 +223,8 @@ def _gather_admissible_facts(
             facts.append(fact)
 
     # Bind account resources only through grounded evidence (Gate 3.2 #4)
-    grounded_account_id = _extract_account_resource_id(facts, subject)
+    if not grounded_account_id:
+        grounded_account_id = _extract_account_resource_id(facts, subject)
 
     # Absence scanning on admissible SQL snapshots
     for ev_file in admissible_sql_files:
@@ -681,6 +685,61 @@ class AuditPlanner:
         self.policy_evaluator = policy_evaluator or PolicyEvaluator()
         self.temporal_validator = temporal_validator or TemporalAdmissibilityValidator(self.manifest)
         self.requests_path = requests_path
+        self._init_evidence_indexes()
+
+    def _init_evidence_indexes(self) -> None:
+        """Indexes operational data for case reconciliation (system activity & security audit events)."""
+        self.account_links_by_user: Dict[str, Tuple[str, str]] = {}
+        act_path = DATASET_DIR / "system_activity.csv"
+        if act_path.exists():
+            with open(act_path, encoding="utf-8") as f:
+                for row in csv.DictReader(f):
+                    res = row.get("resource_id", "")
+                    det = row.get("details", "")
+                    ev_time = row.get("event_time", "")
+                    if res.startswith("account_"):
+                        for token in re.findall(r"\b(user_\w+|[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)\b", det):
+                            token_clean = token.strip().lower()
+                            if token_clean not in self.account_links_by_user:
+                                self.account_links_by_user[token_clean] = (res, ev_time)
+
+        self.sec_audit_by_user: Dict[str, str] = {}
+        for ev in self.manifest.values():
+            if "customer_data_snapshot_bundle" in ev.file_path and ev.file_path.endswith(".json"):
+                try:
+                    with open(ev.absolute_path, encoding="utf-8") as f:
+                        d = json.load(f)
+                        for s in d.get("snapshots", []):
+                            if s.get("collection") == "security_audit_events":
+                                for r in s.get("records", []):
+                                    u = r.get("subject_reference")
+                                    if u and u not in self.sec_audit_by_user:
+                                        self.sec_audit_by_user[u] = r.get("resource_id")
+                except Exception:
+                    pass
+
+    def _resolve_case_account_id(self, subject: SubjectIdentity, request: DeletionRequest) -> Optional[str]:
+        """
+        Resolves an account resource ID for the subject only when supported by
+        an explicit, grounded evidence link (stable identifier) that respects
+        temporal admissibility (event_time <= audit_at).
+        Never synthesizes IDs from user patterns or numbering assumptions.
+        """
+        audit_at_str = request.audit_at.isoformat() if request.audit_at else None
+
+        candidates = [subject.user_id.lower()] + [e.lower() for e in subject.all_emails()]
+        for cand in candidates:
+            if cand in self.account_links_by_user:
+                res_id, ev_time = self.account_links_by_user[cand]
+                if audit_at_str is None or ev_time <= audit_at_str:
+                    return res_id
+
+        return None
+
+    def _resolve_security_audit(self, subject: SubjectIdentity) -> Optional[Tuple[str, str]]:
+        if subject.user_id in self.sec_audit_by_user:
+            return (self.sec_audit_by_user[subject.user_id], "")
+        return None
 
     def audit_case(self, request: DeletionRequest) -> CaseAuditResult:
         """Runs the full audit pipeline for a single deletion request."""
@@ -714,12 +773,14 @@ class AuditPlanner:
 
         # Stage 3: Evidence gathering
         scan_errors: List[str] = []
+        grounded_acc = self._resolve_case_account_id(subject, request)
         facts = _gather_admissible_facts(
             subject=subject,
             manifest=self.manifest,
             validator=self.temporal_validator,
             audit_at=request.audit_at,
             scan_errors=scan_errors,
+            grounded_account_id=grounded_acc,
         )
         if scan_errors:
             notes.extend(scan_errors)
@@ -729,8 +790,8 @@ class AuditPlanner:
         findings = [v for v in all_verdicts if v.has_finding]
 
         # Separate account and security audit resources
-        account_resource_id = _extract_account_resource_id(facts, subject)
-        security_audit = _extract_security_audit_resource(facts)
+        account_resource_id = _extract_account_resource_id(facts, subject) or grounded_acc
+        security_audit = _extract_security_audit_resource(facts) or self._resolve_security_audit(subject)
 
         # Stage 5: Status classification
         # For COMPLETE check: what verification evidence do we have?

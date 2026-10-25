@@ -108,33 +108,48 @@ class SubjectIdentity:
 
         fn = field_name.strip().lower()
 
+        # Generic polymorphic fields that may contain a user_id, email, hash, or phone
+        if fn in {"correlation_key", "lookup_key", "match_key", "query", "subject_key", "subject_ref"}:
+            if cleaned == self.user_id:
+                return True
+            if "@" in cleaned:
+                norm_email = normalize_email(cleaned)
+                return norm_email in self.all_emails()
+            if len(cleaned) in (32, 40, 64) and all(c in "0123456789abcdefABCDEF" for c in cleaned):
+                norm_hash = normalize_hash(cleaned)
+                return bool(norm_hash and norm_hash in self.all_hashes())
+            norm_phone = normalize_phone(cleaned)
+            if norm_phone and norm_phone in self.all_phones():
+                return True
+            return False
+
         # Match user_id / subject references
         if fn in {"user_id", "subject_id", "customer_reference", "subject_reference", "account_id", "user_reference"}:
             return cleaned == self.user_id
 
         # Match emails
-        if fn in {"email", "user_email", "customer_email", "recipient_email", "historical_email", "subject_key"}:
+        if fn in {"email", "user_email", "customer_email", "recipient_email", "historical_email"}:
             return normalize_email(cleaned) in self.all_emails()
 
         # Match phone numbers
-        if fn in {"phone", "phone_number", "mobile", "user_phone"}:
+        if fn in {"phone", "phone_number", "mobile", "user_phone", "requester_phone", "owner_phone"}:
             return normalize_phone(cleaned) in self.all_phones()
 
-        # Match email hashes and correlation keys
-        if fn in {"email_hash", "correlation_key", "lookup_key", "hash", "subject_hash"}:
+        # Match email hashes
+        if fn in {"email_hash", "hash", "subject_hash"}:
             norm_hash = normalize_hash(cleaned)
             if norm_hash and norm_hash in self.all_hashes():
                 return True
 
-        # Fallback heuristic: check if value matches any known identifier format
-        norm_email = normalize_email(cleaned)
-        if norm_email in self.all_emails():
+        # Fallback inspection by value format for non-generic unknown field names
+        if cleaned == self.user_id:
             return True
-
-        norm_hash = normalize_hash(cleaned)
-        if norm_hash in self.all_hashes():
-            return True
-
+        if "@" in cleaned:
+            return normalize_email(cleaned) in self.all_emails()
+        if len(cleaned) in (32, 40, 64) and all(c in "0123456789abcdefABCDEF" for c in cleaned):
+            norm_hash = normalize_hash(cleaned)
+            if norm_hash and norm_hash in self.all_hashes():
+                return True
         norm_phone = normalize_phone(cleaned)
         if norm_phone and norm_phone in self.all_phones():
             return True
@@ -306,21 +321,35 @@ class IdentityResolver:
             return None
 
         fn = field_name.strip().lower()
-        if fn in {"user_id", "subject_id", "customer_reference", "subject_reference", "account_id"}:
+
+        # Polymorphic fields: determine type from actual value
+        if fn in {"correlation_key", "lookup_key", "match_key", "query", "subject_key", "subject_ref"}:
+            if cleaned.startswith("user_"):
+                return self.resolve_by_user_id(cleaned)
+            if "@" in cleaned:
+                return self.resolve_by_email(cleaned)
+            if len(cleaned) in (32, 40, 64) and all(c in "0123456789abcdefABCDEF" for c in cleaned):
+                return self.resolve_by_hash(cleaned)
+            subj = self.resolve_by_user_id(cleaned)
+            if subj:
+                return subj
+            return None
+
+        if fn in {"user_id", "subject_id", "customer_reference", "subject_reference", "account_id", "user_reference"}:
             return self.resolve_by_user_id(cleaned)
-        if fn in {"email", "user_email", "customer_email", "recipient_email", "subject_key"}:
+        if fn in {"email", "user_email", "customer_email", "recipient_email", "historical_email"}:
             return self.resolve_by_email(cleaned)
-        if fn in {"email_hash", "correlation_key", "lookup_key", "hash"}:
-            res = self.resolve_by_hash(cleaned)
-            if res:
-                return res
-        if fn in {"phone", "phone_number", "mobile"}:
+        if fn in {"email_hash", "hash", "subject_hash"}:
+            return self.resolve_by_hash(cleaned)
+        if fn in {"phone", "phone_number", "mobile", "user_phone"}:
             return self.resolve_by_phone(cleaned)
 
         # Fallback inspection by value format
+        if cleaned.startswith("user_"):
+            return self.resolve_by_user_id(cleaned)
         if "@" in cleaned:
             return self.resolve_by_email(cleaned)
-        if len(cleaned) == 64 and all(c in "0123456789abcdefABCDEF" for c in cleaned):
+        if len(cleaned) in (32, 40, 64) and all(c in "0123456789abcdefABCDEF" for c in cleaned):
             return self.resolve_by_hash(cleaned)
 
         return self.resolve_by_user_id(cleaned)
