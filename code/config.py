@@ -8,6 +8,7 @@ Reference: AGENTS.md, problem_statement.md, ARCHITECTURE_AND_PROMPTS.md.
 from __future__ import annotations
 
 import csv
+import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,8 +22,8 @@ from typing import Any, Dict, FrozenSet, List, Mapping, Optional, Tuple, Union
 # Resolve repository root dynamically relative to this file
 REPO_ROOT: Path = Path(__file__).resolve().parent.parent
 
-# Core participant-facing dataset directory
-DATASET_DIR: Path = REPO_ROOT / "dataset"
+# Core participant-facing dataset directory (supports environment variable override)
+DATASET_DIR: Path = Path(os.environ.get("DATASET_DIR", str(REPO_ROOT / "dataset"))).resolve()
 EVIDENCE_DIR: Path = DATASET_DIR / "evidence"
 
 # Dataset file paths

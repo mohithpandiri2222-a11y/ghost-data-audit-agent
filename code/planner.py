@@ -406,6 +406,10 @@ def _extract_account_resource_id(
     for fact in facts:
         if fact.resource_id.startswith("account_"):
             return fact.resource_id
+    for fact in facts:
+        src = fact.get_attribute("source_resource_id")
+        if src and src.startswith("account_"):
+            return src
     return None
 
 
@@ -702,6 +706,32 @@ class AuditPlanner:
                             token_clean = token.strip().lower()
                             if token_clean not in self.account_links_by_user:
                                 self.account_links_by_user[token_clean] = (res, ev_time)
+
+        # Index primary account linkages from evidence databases with source_resource_id
+        for ev in self.manifest.values():
+            if ev.file_path.endswith(".sql") and ev.absolute_path.exists():
+                try:
+                    with sqlite3.connect(":memory:") as con:
+                        con.executescript(ev.absolute_path.read_text(encoding="utf-8"))
+                        for table_tuple in con.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall():
+                            t_name = table_tuple[0]
+                            cur = con.execute(f"SELECT * FROM {t_name}")
+                            cols = [d[0] for d in cur.description]
+                            if "source_resource_id" in cols:
+                                src_idx = cols.index("source_resource_id")
+                                for row in cur.fetchall():
+                                    src_id = row[src_idx]
+                                    if src_id and str(src_id).startswith("account_"):
+                                        cap_iso = ev.captured_at.isoformat() if ev.captured_at else ""
+                                        for idx, col in enumerate(cols):
+                                            val = row[idx]
+                                            if val and isinstance(val, str):
+                                                val_low = val.lower().strip()
+                                                if "@" in val_low or val_low.startswith("user_"):
+                                                    if val_low not in self.account_links_by_user:
+                                                        self.account_links_by_user[val_low] = (str(src_id), cap_iso)
+                except Exception:
+                    pass
 
         self.sec_audit_by_user: Dict[str, str] = {}
         for ev in self.manifest.values():

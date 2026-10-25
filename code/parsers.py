@@ -450,6 +450,8 @@ class SQLEvidenceParser(BaseEvidenceParser):
                     attrs["retention_until"] = str(merged["retention_until"])
                 if "collection_name" in row_dict and row_dict["collection_name"]:
                     attrs["collection_name"] = str(row_dict["collection_name"])
+                if "source_resource_id" in merged and merged["source_resource_id"]:
+                    attrs["source_resource_id"] = str(merged["source_resource_id"])
 
                 fact = EvidenceFact(
                     file_id=ev_file.file_id,

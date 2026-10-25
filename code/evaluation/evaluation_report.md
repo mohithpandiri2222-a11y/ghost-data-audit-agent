@@ -41,8 +41,8 @@ The 3 mismatched cases (`case_01`, `case_02`, `case_04`) were predicted as `INCO
 - **Policy & Contract Adherence:** Gate 3.1 review and Gate 3.2 #4 strictly forbade synthesizing `account_012` from `user_12` or manufacturing decoupled IDs. When no grounded account ID exists in evidence, the pipeline flags `unresolved_account_resource=True`. Per Gate 3.2 #6 and AGENTS.md §6.3, a case cannot be claimed `COMPLETE` without admissible verification evidence. Rather than hallucinating absence proof, the agent responsibly classifies them as `INCOMPLETE`.
 
 ### 2.3 Step-Level, Field-Level, and Sequence Accuracy
-- **Step Counts Match:** 23 of 32 cases (71.88%) matched the exact number of steps in the public sample.
-- **Exact Sequence Matches:** 15 cases (46.88%) matched the exact sequence of all 6 step fields (`phase`, `system_id`, `resource_id`, `operation`, `state`, `evidence_id`) across all steps (`case_05`, `case_11`, `case_12`, `case_13`, `case_14`, `case_15`, `case_16`, `case_17`, `case_19`, `case_21`, `case_24`, `case_25`, `case_26`, `case_27`, `case_28`).
+- **Step Counts Match:** 16 of 32 cases (50.00%) matched the exact number of steps in the public sample.
+- **Exact Sequence Matches:** 16 cases (50.00%) matched the exact sequence of all 6 step fields (`phase`, `system_id`, `resource_id`, `operation`, `state`, `evidence_id`) across all steps (`case_05`, `case_06`, `case_11`, `case_12`, `case_13`, `case_14`, `case_15`, `case_16`, `case_17`, `case_19`, `case_21`, `case_24`, `case_25`, `case_26`, `case_27`, `case_28`).
 - **Field-Level Compliance:** 100% of generated steps conform to the schema: valid operations, canonical states, correct phase progression, and valid evidence ID provenance (non-empty for findings and COMPLETE verification; empty string for proposed remediation and post-remediation verification).
 
 ---

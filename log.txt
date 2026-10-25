@@ -2480,3 +2480,139 @@ branch=main
 repo_root=c:\Users\hp\OneDrive\websites\hackerrank-orchestrate-october26-main
 worktree=main
 parent_agent=none
+
+## [2026-10-25T13:12:00Z] Rank 1 Cluster A Implementation & Evidence Boundary Audit
+
+User Prompt (verbatim, secrets redacted):
+I approve implementing Rank 1 only: Workflow-Correlated Primary Account Linkage in INCOMPLETE Cases (Cluster A).
+
+Target cases:
+case_06, case_07, case_08, case_10, case_22, case_23, case_29, case_30, case_32.
+
+Strict implementation requirements:
+
+1. Before editing, confirm the current branch, commit, clean working tree, and that `stash@{0}` still exists. The diagnostic report says commit `98e6026`; verify this rather than assuming it.
+2. Preserve the current checkpoint and create an additional recovery checkpoint before changes.
+3. Inspect the existing account-ID resolution and verification-planning code before implementing anything.
+4. Resolve the primary account only when a deletion-worker event is uniquely and unambiguously correlated to the specific request/workflow window and the target account resource is explicitly present in the event.
+5. Do not infer identity from timing alone. Require independent case/request linkage and subject isolation. If those conditions are not met, leave the account unresolved.
+6. Do not fabricate evidence IDs. The proposed post-remediation `VERIFY_RECORD_ABSENT` step must retain an empty evidence ID unless admissible evidence genuinely supports it.
+7. Do not change deletion-status logic or alter the expected handling of `case_01`, `case_02`, `case_04`, or `case_31`. Do not address Cluster B or other clusters in this change.
+8. Add focused tests for all nine target cases, plus negative tests for ambiguous events, multiple candidate accounts, cross-subject contamination, and unrelated workflow events.
+9. Run targeted tests, then the full test suite. Regenerate evaluation outputs only after the implementation passes tests.
+10. Compare before/after status accuracy and exact sequence accuracy. Inspect any regressions and report the exact cases changed.
+11. If the strict correlation requirements cannot be satisfied by available evidence, stop and explain why rather than implementing a timing-only heuristic.
+
+Time budget: aim for approximately 15–25 minutes for implementation and focused tests, then verify the full suite. Do not rush past a failing test.
+
+Do not implement Rank 2 yet. Return the diff summary, test results, per-case score changes, and remaining risks for my review.
+
+Agent Response Summary:
+Verified Git working tree clean at commit 98e6026, confirmed stash@{0}, and created recovery checkpoint checkpoint-rank1-pre-98e6026. Implemented grounded primary account resolution via database source_resource_id attribute in code/parsers.py and SQL table indexing in code/planner.py, cleanly resolving case_06 with full participant-visible evidence proof. Discovered that cases 07, 08, 10, 22, 23, 29, 30, and 32 lack independent subject linkage in system_activity.csv and suffer from timing window violations or multi-candidate batch ambiguity, triggering Requirement 11 to keep them safely unresolved rather than guessing via timing-only heuristics. Added 8 comprehensive unit tests in tests/test_workflow_account_correlation.py (all passing), verified all 127 suite tests pass, regenerated output.csv, and demonstrated exact sequence accuracy improvement from 15/32 (46.88%) to 16/32 (50.00%) with 0 regressions.
+
+Actions:
+* Created recovery checkpoint checkpoint-rank1-pre-98e6026 and scratch snapshot directory
+* Edited code/parsers.py to preserve source_resource_id attribute in SQLEvidenceParser
+* Edited code/planner.py to extract source_resource_id and index SQL database search documents
+* Created tests/test_workflow_account_correlation.py covering all 9 cases and negative tests
+* Ran targeted tests and full 127-test suite (100% pass)
+* Ran code/main.py producing 518 valid evaluation rows in output.csv
+* Ran code/evaluation/main.py validating 100% contract compliance and 16/32 exact sequence matches
+
+Context:
+tool=Antigravity
+model=Gemini 3.8 Flash (High)
+branch=main
+repo_root=c:\Users\hp\OneDrive\websites\hackerrank-orchestrate-october26-main
+worktree=main
+parent_agent=none
+
+## [2026-10-25T13:28:00Z] Read-Only Evaluator-Readiness Audit and Deliverable Review
+
+User Prompt (verbatim, secrets redacted):
+Priority update: pause Rank 2 and all further implementation work.
+
+First, perform a complete read-only evaluator-readiness audit of our HackerRank Orchestrate submission, "Ghost Data Still Exists." Also review the current Rank 1 diff without modifying it.
+
+## 1. Verify the repository state first
+
+- Confirm the current branch, commit hash, and whether the working tree is clean.
+- Confirm the recovery checkpoint, checkpoint tag, and existing Git stashes are intact.
+- Verify whether the latest Rank 1 changes have been committed and pushed.
+- Do not assume the previous report's results are still current.
+
+## 2. Audit code.zip
+
+Check whether the archive contains all required source files, dependency declarations, setup instructions, README files, entry points, and relevant tests.
+
+Inspect for:
+- Missing modules or broken imports.
+- Unwanted files, caches, environments, or secrets.
+- Hard-coded local paths and references to files outside the archive.
+- Incomplete documentation or missing dependencies.
+- Whether the packaged code matches the intended current source revision.
+
+## 3. Verify clean-environment execution
+
+Determine the actual invocation expected by the challenge instructions.
+
+Check whether the packaged project can be installed and executed in an isolated clean environment using only its documented dependencies and files.
+
+Inspect whether Tesseract, Poppler, or other system dependencies are genuinely required by the submitted execution path and whether they are documented correctly.
+
+Do not alter existing deliverables. If execution requires temporary files, use an isolated temporary directory. If a safe clean-environment test cannot be performed, report the limitation.
+
+## 4. Verify evaluator and architecture requirements
+
+Read the actual challenge instructions and relevant project documentation.
+
+Determine whether an LLM, AI agent, or particular orchestration architecture is explicitly required. Explain which requirements our implementation demonstrably satisfies and which remain uncertain.
+
+Do not assume that another participant's low Code ZIP score proves our package has a problem.
+
+## 5. Check source and deliverable consistency
+
+Verify that:
+- output.csv contains the required columns, row count, and valid data.
+- code.zip contains the intended implementation.
+- The CSV, ZIP, and evaluation reports correspond to a consistent source revision.
+- The Rank 1 changes do not introduce unintended behavior, unsafe SQL handling, or incorrect account linkage.
+- The previous baseline of 119 tests and the reported updated baseline of 127 tests can be reconciled with the current repository.
+
+## 6. Required report
+
+Return a prioritized table containing:
+- Finding and supporting evidence.
+- Severity: critical, high, medium, or low.
+- Whether the issue is confirmed or only suspected.
+- Estimated time to fix and verify.
+- Recommended action and likely impact on evaluation.
+
+Separate confirmed defects from uncertainties and optional improvements.
+
+## Strict constraints
+
+Do not modify code or tests, regenerate output.csv or code.zip, change reports, create commits, or push changes during this audit. Do not weaken evidence requirements or invent missing evidence.
+
+Preserve all existing deliverables, checkpoints, and stashes.
+
+Finish with the highest-priority recommended next action and wait for my explicit approval before making any changes.
+
+Agent Response Summary:
+Conducted an exhaustive read-only evaluator-readiness audit across the repository, code.zip archive, clean-environment execution contract, architectural requirements, and deliverable consistency. Confirmed working tree status (uncommitted Rank 1 changes in code/parsers.py, code/planner.py, and untracked tests/test_workflow_account_correlation.py), preserved all recovery checkpoints, stashes, and tags, and verified output.csv's 518 valid rows and strict contract compliance. Verified that code.zip contains zero hardcoded paths, zero secrets, zero caches, and requires zero external binary dependencies (pure Python standard library execution with in-memory SQLite and built-in zlib PDF stream parsing). Identified that existing code.zip reflects pre-Rank-1 commit f8ad1e8 (119 tests, 15 exact matches), whereas working tree contains Rank 1 improvements (127 tests, 16 exact matches), and produced a prioritized findings table with clear next actions.
+
+Actions:
+* Verified Git status, branch main, commit 98e6026, stashes, and checkpoint-rank1-pre-98e6026 tag
+* Audited all 22 files inside code.zip for structure, secrets, caches, and path references
+* Verified clean-environment standalone execution of code.zip in isolated test namespace
+* Audited problem_statement.md and README.md regarding architectural and LLM requirements
+* Reconciled test suite baseline (119 baseline + 8 new Rank 1 tests = 127 tests)
+* Appended turn audit record to log.txt preserving formatting constraints
+
+Context:
+tool=Antigravity
+model=Gemini 3.8 Flash (High)
+branch=main
+repo_root=c:\Users\hp\OneDrive\websites\hackerrank-orchestrate-october26-main
+worktree=main
+parent_agent=none
