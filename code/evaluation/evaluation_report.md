@@ -146,6 +146,10 @@ Across the progressive development gates, the following failures were discovered
    - *Investigation:* User analytics profiles (`analytics_9914` in Case 12) were initially treated as generic telemetry (`ANALYTICS_PROFILE` -> Rule 7 `ANONYMIZE_RECORD`).
    - *Evidence & Policy Fact:* The raw log event explicitly recorded `email_opt_in=true`. Under platform data taxonomy and Rule 10 (`MARKETING_PROFILE`), user profiles activated for marketing outreach require complete erasure (`DELETE_RECORD` -> `VERIFY_RECORD_ABSENT`).
    - *Fix:* Updated parser data category derivation to evaluate explicit marketing consent opt-in flags, correctly binding to Rule 10 and converting Case 12 into a 100% exact sequence match without hardcoding.
+9. **Phase 3 Forensics — Contact Index Replica Policy Classification (Rule 3):**
+   - *Investigation:* In Case 10, support replica logs (`evidence_61` / `support_replica.log`) recorded an un-deleted contact index entry (`source=legacy_contact_index`, `deletion_marker_check marker_found=false`). The parser initially mapped `support_002` to `SUPPORT_MESSAGE` (`REDACT_RECORD`).
+   - *Evidence & Policy Fact:* Under `deletion_rules.csv`, Rule 5 (`REDACT`) strictly applies only to conversation messages containing shared context. Contact index entries and replica lookups are governed by index/profile deletion rules (`rule_03`) requiring `DELETE_RECORD`.
+   - *Fix:* Enhanced `LogEvidenceParser` to track and propagate trace source context (`legacy_contact_index`) into data category derivation, correctly classifying contact index entries as `SEARCH_INDEX_ENTRY` (`REPORT_REMAINING_RECORD` -> `DELETE_RECORD` -> `VERIFY_RECORD_ABSENT`).
 
 ---
 

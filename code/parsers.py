@@ -808,6 +808,7 @@ class LogEvidenceParser(BaseEvidenceParser):
         seen_fact_keys: Set[Tuple[Any, ...]] = set()
         trace_context: Dict[str, Tuple[str, str]] = {}
         trace_resources: Dict[str, str] = {}
+        trace_sources: Dict[str, str] = {}
         errors: List[str] = []
         records_read = 0
 
@@ -853,6 +854,12 @@ class LogEvidenceParser(BaseEvidenceParser):
                             kv[k] = v
 
                     trace_id = kv.get("trace_id")
+                    source_val = kv.get("source") or kv.get("collection")
+                    if source_val and trace_id:
+                        trace_sources[trace_id] = source_val
+                    elif not source_val and trace_id and trace_id in trace_sources:
+                        source_val = trace_sources[trace_id]
+
                     id_match = find_matching_identifier(kv, subject)
                     if id_match is not None:
                         matched_field, matched_value = id_match
@@ -916,7 +923,8 @@ class LogEvidenceParser(BaseEvidenceParser):
                     elif "redacted" in event:
                         state = "REDACTED"
 
-                    category = derive_data_category(system_id, resource_id, event)
+                    context_tag = f"{event}_{source_val}" if source_val else event
+                    category = derive_data_category(system_id, resource_id, context_tag)
                     # Marketing profile: analytics or contact event with marketing email consent / opt-in
                     # Governed by deletion_rules.csv Rule 10: MARKETING_PROFILE, Always, DELETE
                     if category == "ANALYTICS_PROFILE" or "analytics" in system_id:

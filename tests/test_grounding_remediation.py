@@ -20,6 +20,7 @@ from code.parsers import (
     DocumentImageEvidenceParser,
     LogEvidenceParser,
     ParseStatus,
+    derive_data_category,
 )
 from code.planner import (
     AuditPlanner,
@@ -502,6 +503,70 @@ class TestGroundingRemediation(unittest.TestCase):
             self.assertEqual(verdict_regular.remediation_state, "ANONYMIZED")
             self.assertEqual(verdict_regular.verification_operation, "VERIFY_RECORD_ANONYMIZED")
             self.assertEqual(verdict_regular.verification_state, "ANONYMIZED")
+
+
+    def test_legacy_contact_index_replica_policy_behavior(self) -> None:
+        """
+        Verify that support replica log lines with source=legacy_contact_index (Case 10 / evidence_61)
+        are categorized as index entries requiring DELETE_RECORD under Rule 3, while standard
+        support conversations remain subject to REDACT_RECORD under Rule 5.
+        """
+        evaluator = PolicyEvaluator()
+        dummy_ts = datetime.fromisoformat("2026-09-17T22:00:05+00:00")
+
+        # 1. Positive case: replica contact index entry (Rule 3)
+        cat_replica = derive_data_category("support_platform", "support_002", "contact_query_completed_legacy_contact_index")
+        self.assertEqual(cat_replica, "SEARCH_INDEX_ENTRY")
+
+        fact_replica = EvidenceFact(
+            file_id="evidence_61",
+            file_path="evidence/logs/support_replica.log",
+            origin="support_platform",
+            file_captured_at=dummy_ts,
+            record_timestamp=dummy_ts,
+            system_id="support_platform",
+            resource_id="support_002",
+            data_category=cat_replica,
+            status_or_state="PRESENT",
+            source_locator="evidence/logs/support_replica.log:5",
+            raw_event="contact_query_completed",
+            matched_identifier_field="email",
+            matched_identifier_value="nadia.ionescu@yahoo.com",
+        )
+        verdict_replica = evaluator.evaluate_fact(fact_replica)
+        self.assertTrue(verdict_replica.has_finding)
+        self.assertEqual(verdict_replica.finding_operation, "REPORT_REMAINING_RECORD")
+        self.assertEqual(verdict_replica.remediation_operation, "DELETE_RECORD")
+        self.assertEqual(verdict_replica.remediation_state, "ABSENT")
+        self.assertEqual(verdict_replica.verification_operation, "VERIFY_RECORD_ABSENT")
+        self.assertEqual(verdict_replica.verification_state, "ABSENT")
+
+        # 2. Negative case: standard conversation ticket (Rule 5)
+        cat_conversation = derive_data_category("support_platform", "support_999", "ticket_conversation")
+        self.assertEqual(cat_conversation, "SUPPORT_MESSAGE")
+
+        fact_conversation = EvidenceFact(
+            file_id="evidence_60",
+            file_path="evidence/records/support_tickets.json",
+            origin="support_platform",
+            file_captured_at=dummy_ts,
+            record_timestamp=dummy_ts,
+            system_id="support_platform",
+            resource_id="support_999",
+            data_category=cat_conversation,
+            status_or_state="PRESENT",
+            source_locator="evidence/records/support_tickets.json:10",
+            raw_event="support_ticket_read",
+            matched_identifier_field="email",
+            matched_identifier_value="user@example.com",
+        )
+        verdict_conversation = evaluator.evaluate_fact(fact_conversation)
+        self.assertTrue(verdict_conversation.has_finding)
+        self.assertEqual(verdict_conversation.finding_operation, "REPORT_EXPOSED_PII")
+        self.assertEqual(verdict_conversation.remediation_operation, "REDACT_RECORD")
+        self.assertEqual(verdict_conversation.remediation_state, "REDACTED")
+        self.assertEqual(verdict_conversation.verification_operation, "VERIFY_RECORD_REDACTED")
+        self.assertEqual(verdict_conversation.verification_state, "REDACTED")
 
 
 if __name__ == "__main__":

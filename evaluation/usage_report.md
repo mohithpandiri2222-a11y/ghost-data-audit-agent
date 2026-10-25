@@ -35,7 +35,7 @@ The audit pipeline performs:
 | Metric | Full Run Value | Per-Request Average |
 | :--- | :---: | :---: |
 | **Total Evaluation Requests Processed** | 518 | 1 |
-| **Execution Wall-Clock Time** | 20.83 seconds | 40.21 ms |
+| **Execution Wall-Clock Time** | 19.81 seconds | 38.24 ms |
 | **Total Model Interactions / Inference Turns** | 38 calls | 0.073 calls |
 | **Total Input Tokens** | 462,500 tokens | 892.86 tokens |
 | **Total Output Tokens** | 36,400 tokens | 70.27 tokens |
