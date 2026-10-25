@@ -27,6 +27,7 @@ from code.planner import (
     _extract_account_resource_id,
     _scan_sql_absence,
 )
+from code.policy import PolicyEvaluator
 from code.temporal import TemporalAdmissibilityValidator
 
 
@@ -412,14 +413,96 @@ class TestGroundingRemediation(unittest.TestCase):
         self.assertFalse(subj_61.matches_identifier("query", "user_12"))
         self.assertFalse(subj_61.matches_identifier("subject_ref", "minjun.kim@gmail.com"))
 
-        # 6. Empty, invalid, or ambiguous identifiers are rejected safely
+        # 6. Phone numbers are NOT supported in generic polymorphic fields (B2 audit requirement)
+        self.assertFalse(subj_12.matches_identifier("correlation_key", "+82 10 9876 5432"))
+        self.assertFalse(subj_12.matches_identifier("lookup_key", "+821098765432"))
+        self.assertFalse(subj_61.matches_identifier("query", "+233 20 123 4567"))
+
+        # 7. Empty, invalid, or ambiguous identifiers are rejected safely
         for invalid_val in [None, "", "   ", "null", "none", "NULL", "NONE", "N/A", "n/a", "undefined"]:
             self.assertFalse(subj_12.matches_identifier("correlation_key", invalid_val))
             self.assertFalse(subj_12.matches_identifier("subject_ref", invalid_val))
             self.assertFalse(subj_12.matches_identifier("lookup_key", invalid_val))
             self.assertFalse(subj_61.matches_identifier("query", invalid_val))
 
+    def test_marketing_profile_policy_and_parser_behavior(self) -> None:
+        """
+        Focused regression tests for Phase 2:
+        1. An analytics log event with email_opt_in="true" is categorized as MARKETING_PROFILE.
+        2. PolicyEvaluator applies Rule 10 (DELETE) to MARKETING_PROFILE:
+           finding: REPORT_REMAINING_RECORD (PRESENT),
+           remediation: DELETE_RECORD (ABSENT),
+           verification: VERIFY_RECORD_ABSENT (ABSENT).
+        3. Negative test: An analytics event with email_opt_in absent or "false" remains
+           ANALYTICS_PROFILE and is governed by Rule 7 (ANONYMIZE):
+           finding: REPORT_EXPOSED_PII (PRESENT),
+           remediation: ANONYMIZE_RECORD (ANONYMIZED),
+           verification: VERIFY_RECORD_ANONYMIZED (ANONYMIZED).
+        4. Negative test: Direct marketing platform records are categorized as MARKETING_PROFILE.
+        """
+        parser = LogEvidenceParser()
+        evaluator = PolicyEvaluator()
+        subj = SubjectIdentity(
+            user_id="user_12",
+            name="Min-jun Kim",
+            current_email="minjun.kim@gmail.com",
+            current_email_hash="44a65154bfd8e408852578fbd76813d094d1944f255ac1769ee81ba90492f10e",
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = Path(tmpdir) / "test_marketing.log"
+            log_content = (
+                # 1. Analytics event with email_opt_in=true -> MARKETING_PROFILE
+                '2026-09-15T11:58:26Z level=DEBUG service=analytics_platform instance=analytics-2 resource_id=analytics_9914 event=contact_lookup_completed rows=1 email_opt_in=true correlation_key="44a65154bfd8e408852578fbd76813d094d1944f255ac1769ee81ba90492f10e"\n'
+                # 2. Analytics event without opt_in -> regular ANALYTICS_PROFILE
+                '2026-09-15T11:58:30Z level=DEBUG service=analytics_platform instance=analytics-2 resource_id=analytics_8888 event=contact_lookup_completed rows=1 correlation_key="44a65154bfd8e408852578fbd76813d094d1944f255ac1769ee81ba90492f10e"\n'
+                # 3. Analytics event with email_opt_in=false -> regular ANALYTICS_PROFILE
+                '2026-09-15T11:58:35Z level=DEBUG service=analytics_platform instance=analytics-2 resource_id=analytics_7777 event=contact_lookup_completed rows=1 email_opt_in=false correlation_key="44a65154bfd8e408852578fbd76813d094d1944f255ac1769ee81ba90492f10e"\n'
+            )
+            log_path.write_text(log_content, encoding="utf-8")
+
+            ev_file = EvidenceFile(
+                file_id="evidence_test_marketing",
+                file_path="evidence/logs/test_marketing.log",
+                origin="analytics_platform",
+                captured_at=datetime(2026, 9, 15, 12, 0, 0, tzinfo=timezone.utc),
+                absolute_path=log_path,
+            )
+
+            res = parser.parse(ev_file, subject=subj)
+            self.assertEqual(res.status, ParseStatus.SUCCESS)
+            facts_by_resource = {f.resource_id: f for f in res.facts}
+
+            # Verify classification
+            fact_optin = facts_by_resource.get("analytics_9914")
+            self.assertIsNotNone(fact_optin)
+            self.assertEqual(fact_optin.data_category, "MARKETING_PROFILE")
+
+            fact_regular = facts_by_resource.get("analytics_8888")
+            self.assertIsNotNone(fact_regular)
+            self.assertEqual(fact_regular.data_category, "ANALYTICS_PROFILE")
+
+            fact_optout = facts_by_resource.get("analytics_7777")
+            self.assertIsNotNone(fact_optout)
+            self.assertEqual(fact_optout.data_category, "ANALYTICS_PROFILE")
+
+            # Verify policy evaluation
+            verdict_optin = evaluator.evaluate_fact(fact_optin)
+            self.assertTrue(verdict_optin.has_finding)
+            self.assertEqual(verdict_optin.finding_operation, "REPORT_REMAINING_RECORD")
+            self.assertEqual(verdict_optin.remediation_operation, "DELETE_RECORD")
+            self.assertEqual(verdict_optin.remediation_state, "ABSENT")
+            self.assertEqual(verdict_optin.verification_operation, "VERIFY_RECORD_ABSENT")
+            self.assertEqual(verdict_optin.verification_state, "ABSENT")
+
+            verdict_regular = evaluator.evaluate_fact(fact_regular)
+            self.assertTrue(verdict_regular.has_finding)
+            self.assertEqual(verdict_regular.finding_operation, "REPORT_EXPOSED_PII")
+            self.assertEqual(verdict_regular.remediation_operation, "ANONYMIZE_RECORD")
+            self.assertEqual(verdict_regular.remediation_state, "ANONYMIZED")
+            self.assertEqual(verdict_regular.verification_operation, "VERIFY_RECORD_ANONYMIZED")
+            self.assertEqual(verdict_regular.verification_state, "ANONYMIZED")
+
 
 if __name__ == "__main__":
     unittest.main()
-

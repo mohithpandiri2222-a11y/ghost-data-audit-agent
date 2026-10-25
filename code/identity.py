@@ -108,7 +108,7 @@ class SubjectIdentity:
 
         fn = field_name.strip().lower()
 
-        # Generic polymorphic fields that may contain a user_id, email, hash, or phone
+        # Generic polymorphic fields that may contain a user_id, email, or hash (phones not supported in generic fields)
         if fn in {"correlation_key", "lookup_key", "match_key", "query", "subject_key", "subject_ref"}:
             if cleaned == self.user_id:
                 return True
@@ -118,9 +118,6 @@ class SubjectIdentity:
             if len(cleaned) in (32, 40, 64) and all(c in "0123456789abcdefABCDEF" for c in cleaned):
                 norm_hash = normalize_hash(cleaned)
                 return bool(norm_hash and norm_hash in self.all_hashes())
-            norm_phone = normalize_phone(cleaned)
-            if norm_phone and norm_phone in self.all_phones():
-                return True
             return False
 
         # Match user_id / subject references
@@ -330,9 +327,6 @@ class IdentityResolver:
                 return self.resolve_by_email(cleaned)
             if len(cleaned) in (32, 40, 64) and all(c in "0123456789abcdefABCDEF" for c in cleaned):
                 return self.resolve_by_hash(cleaned)
-            subj = self.resolve_by_user_id(cleaned)
-            if subj:
-                return subj
             return None
 
         if fn in {"user_id", "subject_id", "customer_reference", "subject_reference", "account_id", "user_reference"}:

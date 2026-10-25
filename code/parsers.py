@@ -150,6 +150,8 @@ def derive_data_category(
     combined = f"{system_id}_{resource_id}_{collection_or_table}".lower()
     if "tombstone" in combined:
         return "ACCOUNT_TOMBSTONE"
+    if "marketing" in combined:
+        return "MARKETING_PROFILE"
     if "attachment" in combined:
         return "SUPPORT_ATTACHMENT"
     if "analytics" in combined or "telemetry" in combined:
@@ -673,6 +675,9 @@ class JSONEvidenceParser(BaseEvidenceParser):
         rec_ts = parse_iso_timestamp(str(raw_ts)) if raw_ts else None
 
         category = derive_data_category(system_id, resource_id, coll_or_svc)
+        if category == "ANALYTICS_PROFILE" or "analytics" in system_id:
+            if str(flattened.get("email_opt_in", "")).lower() in ("true", "1", "yes"):
+                category = "MARKETING_PROFILE"
 
         # Determine state
         state = "PRESENT"
@@ -912,6 +917,11 @@ class LogEvidenceParser(BaseEvidenceParser):
                         state = "REDACTED"
 
                     category = derive_data_category(system_id, resource_id, event)
+                    # Marketing profile: analytics or contact event with marketing email consent / opt-in
+                    # Governed by deletion_rules.csv Rule 10: MARKETING_PROFILE, Always, DELETE
+                    if category == "ANALYTICS_PROFILE" or "analytics" in system_id:
+                        if kv.get("email_opt_in", "").lower() in ("true", "1", "yes"):
+                            category = "MARKETING_PROFILE"
                     locator = f"{ev_file.file_path}:{line_no}"
 
                     # Semantic deduplication: resource in same event, state, and timestamp
